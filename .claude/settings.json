@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr create*)",
+      "Bash(vercel --prod*)",
+      "Bash(vercel deploy*)",
+      "Bash(npm publish*)",
+      "Bash(gh release*)"
+    ],
+    "deny": [
+      "Bash(supabase db push*)",
+      "Bash(npx supabase db push*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(gh pr merge --auto*)",
+      "Bash(rm -rf /*)",
+      "Bash(git reset --hard*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+name: guard
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 代码层机器规则：来自 271 条真实踩坑记录（详见 README）
+      - name: check-rules
+        run: node scripts/check-rules.mjs
+
+      # TODO: 换成你项目的构建与测试命令
+      # - run: npm ci
+      # - run: npx tsc --noEmit
+      # - run: npm test
+      # - run: npx playwright test

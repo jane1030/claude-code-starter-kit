@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用 Claude Code 开发产品的避坑手册</title>
+
+<!-- ============ FONTS: cobalt-grid three-face system + CJK pairing ============
+     显示层 = Newsreader / 思源宋体 700
+     正文层 = Hanken Grotesk / 思源宋体 400
+     chrome = DM Mono（页码/标签/编号，拉丁与数字专用） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..500;1,6..72,400..500&family=Hanken+Grotesk:wght@400..700&family=DM+Mono:wght@400..500&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ===========================================
+   COBALT GRID TOKENS — 双色体系：米白纸 + 钴蓝墨
+   =========================================== */
+:root {
+    --paper: #F0EBDE;
+    --paper2: #E6E0CE;
+    --ink: #1F2BE0;
+    --ink-soft: #5560E5;
+    --grid: rgba(31, 43, 224, 0.10);
+    --ink-faint: rgba(31, 43, 224, 0.18);
+    --ink-60: rgba(31, 43, 224, 0.62);
+
+    --f-display: 'Newsreader', 'Noto Serif SC', Georgia, serif;
+    --f-body: 'Hanken Grotesk', 'Noto Serif SC', sans-serif;
+    --f-mono: 'DM Mono', ui-monospace, monospace;
+
+    /* 1920×1080 舞台换算 */
+    --edge: 70px;
+    --pad-top: 112px;
+    --pad-bottom: 106px;
+    --gap-lg: 48px;
+    --gap-md: 30px;
+    --gap-sm: 20px;
+
+    --stage-bg: #d8d2c2;
+    --slide-bg: var(--paper);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================
+   FIXED 16:9 STAGE (viewport-base.css, in full)
+   =========================================== */
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--stage-bg, #000); }
+.deck-viewport { position: fixed; inset: 0; overflow: hidden; background: var(--stage-bg, #000); }
+.deck-stage {
+    position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+    overflow: hidden; transform-origin: 0 0; background: var(--slide-bg, #fff);
+}
+.slide {
+    position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden;
+    display: block; visibility: hidden; opacity: 0; pointer-events: none;
+    background: var(--slide-bg, #fff);
+}
+.slide.active, .slide.visible { visibility: visible; opacity: 1; pointer-events: auto; z-index: 1; }
+img, video, canvas, svg { max-width: 100%; max-height: 100%; }
+.deck-controls { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1000; }
+@media print {
+    html, body { width: 1920px; height: auto; overflow: visible; background: #fff; }
+    .deck-viewport { position: static; overflow: visible; background: #fff; }
+    .deck-stage { position: static; width: auto; height: auto; transform: none !important; background: none; }
+    .slide {
+        position: relative; display: block !important; visibility: visible !important;
+        opacity: 1 !important; pointer-events: auto !important;
+        width: 1920px; height: 1080px; break-after: page; page-break-after: always;
+    }
+    .slide:last-child { break-after: auto; page-break-after: auto; }
+    .deck-controls { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+}
+
+/* ===========================================
+   永久方格纸底纹（每页必有，体系身份）
+   =========================================== */
+.slide { color: var(--ink); font-family: var(--f-body); }
+.slide::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+        linear-gradient(to right, var(--grid) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+    background-size: 44px 44px;
+}
+/* 上下钴蓝细线框（每页必有） */
+.hairline-top, .hairline-bot { position: absolute; left: var(--edge); right: var(--edge); height: 1.5px; background: var(--ink); z-index: 2; }
+.hairline-top { top: 30px; }
+.hairline-bot { bottom: 24px; }
+/* 页码（右下）与页脚说明（左下），落在底线之上 */
+.pagenum {
+    position: absolute; right: var(--edge); bottom: 52px; z-index: 2;
+    font-family: var(--f-mono); font-size: 14px; letter-spacing: .06em; color: var(--ink);
+}
+.footnote {
+    position: absolute; left: var(--edge); bottom: 52px; z-index: 2;
+    font-family: var(--f-mono); font-size: 13px; letter-spacing: .06em; color: var(--ink); opacity: .45;
+}
+
+/* ===========================================
+   进场动画
+   =========================================== */
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity .55s cubic-bezier(0.16,1,0.3,1), transform .55s cubic-bezier(0.16,1,0.3,1); }
+.slide.visible .reveal { opacity: 1; transform: translateY(0); }
+.slide.visible .reveal.d1 { transition-delay: .08s; }
+.slide.visible .reveal.d2 { transition-delay: .16s; }
+.slide.visible .reveal.d3 { transition-delay: .24s; }
+.slide.visible .reveal.d4 { transition-delay: .32s; }
+.slide.visible .reveal.d5 { transition-delay: .40s; }
+
+/* ===========================================
+   字体角色（CJK 修正：汉字零紧排、行高放开、不 uppercase）
+   =========================================== */
+.hero { font-family: var(--f-display); font-weight: 700; font-size: 128px; line-height: 1.22; color: var(--ink); }
+.chapter-title { font-family: var(--f-display); font-weight: 700; font-size: 108px; line-height: 1.2; color: var(--ink); }
+.headline { font-family: var(--f-display); font-weight: 700; font-size: 62px; line-height: 1.3; color: var(--ink); }
+.row-head { font-family: var(--f-display); font-weight: 600; font-size: 32px; line-height: 1.45; color: var(--ink); }
+.serif-lede { font-family: var(--f-display); font-weight: 400; font-size: 27px; line-height: 1.85; color: var(--ink); }
+.body-lede { font-size: 22px; line-height: 1.85; color: var(--ink); }
+.body-txt { font-size: 19.5px; line-height: 1.85; color: var(--ink-60); }
+.body-txt b, .body-lede b { color: var(--ink); font-weight: 600; }
+.micro {
+    font-family: var(--f-body); font-weight: 600; font-size: 15px;
+    letter-spacing: .08em; color: var(--ink);
+}
+.mono-tag { font-family: var(--f-mono); font-size: 15px; letter-spacing: .05em; color: var(--ink); }
+.mono-sm { font-family: var(--f-mono); font-size: 13px; letter-spacing: .06em; color: var(--ink); }
+
+/* ===========================================
+   布局构件
+   =========================================== */
+.frame { position: absolute; z-index: 1; left: var(--edge); right: var(--edge); top: var(--pad-top); bottom: var(--pad-bottom); display: flex; flex-direction: column; }
+/* 段落头：衬线标题（左）+ mono 标签（右）+ 1.5px 钴蓝规则线 */
+.topbar { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.5px solid var(--ink); padding-bottom: 18px; margin-bottom: var(--gap-md); }
+/* 索引行：编号 + 内容，行间 18% 淡钴蓝分隔线 */
+.idx-row { display: grid; grid-template-columns: 76px 1fr; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--ink-faint); }
+.idx-row .num { font-family: var(--f-mono); font-size: 16px; color: var(--ink); padding-top: 8px; }
+/* ===========================================
+   手册正文页：页头（大序号+标题+类别徽章）+ 四个独立区块
+   =========================================== */
+.advice-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1.5px solid var(--ink); padding-bottom: 22px; margin-bottom: 26px; }
+.advice-head .title-wrap { display: flex; align-items: baseline; gap: 28px; }
+.advice-head .sec-num { font-family: var(--f-display); font-weight: 700; font-size: 96px; line-height: 1; color: var(--ink); letter-spacing: -0.015em; }
+.advice-head .sec-title { font-family: var(--f-display); font-weight: 700; font-size: 54px; line-height: 1.3; color: var(--ink); }
+.cat-chip {
+    background: var(--ink); color: var(--paper);
+    font-family: var(--f-body); font-weight: 700; font-size: 22px; letter-spacing: .1em;
+    padding: 12px 22px; white-space: nowrap;
+}
+.cat-meta { font-family: var(--f-mono); font-size: 13px; letter-spacing: .06em; color: var(--ink); text-align: right; margin-top: 10px; }
+/* 独立区块：钴蓝标题条 + 1.5px 边框内容区（双色反白，体系合法） */
+.advice-body { display: grid; grid-template-columns: 1fr 1.12fr; grid-template-rows: auto 1fr auto; gap: 22px 26px; flex: 1; min-height: 0; }
+.block-card { border: 1.5px solid var(--ink); display: flex; flex-direction: column; background: rgba(240,235,222,0.55); }
+.block-card .bhead {
+    background: var(--ink); color: var(--paper);
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 18px;
+}
+.block-card .bhead .blet { font-family: var(--f-mono); font-size: 15px; letter-spacing: .05em; opacity: .75; }
+.block-card .bhead .btitle { font-family: var(--f-body); font-weight: 700; font-size: 21px; letter-spacing: .06em; }
+.block-card .bbody { padding: 20px 22px; flex: 1; }
+/* 区块与横幅内正文用近黑墨色（Jane 定），标题条保持钴蓝反白 */
+.block-card .bbody p, .rule-banner .rbody p { color: #23221D; }
+.block-card .bbody p b, .rule-banner .rbody p b { color: #14130F; }
+.block-card.span-right { grid-column: 2; grid-row: 1 / 3; }
+/* 附录：双栏高密度清单 */
+.apx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 52px; align-content: start; flex: 1; min-height: 0; }
+.apx-item { display: grid; grid-template-columns: 42px 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--ink-faint); align-items: baseline; }
+.apx-item .n { font-family: var(--f-mono); font-size: 13px; color: var(--ink); }
+.apx-item p { font-size: 16.5px; line-height: 1.62; color: #3A3934; }
+.apx-item p b { color: #14130F; font-weight: 700; }
+/* 落成规则横幅：整宽、实底反白，页面的「图章」 */
+.rule-banner { grid-column: 1 / 3; display: flex; align-items: stretch; border: 1.5px solid var(--ink); }
+.rule-banner .rhead {
+    background: var(--ink); color: var(--paper); display: flex; align-items: center;
+    font-family: var(--f-body); font-weight: 700; font-size: 21px; letter-spacing: .1em;
+    padding: 14px 24px; white-space: nowrap;
+}
+.rule-banner .rbody { display: flex; align-items: center; padding: 14px 26px; }
+/* 归属线：引文/宣言下方 1px 钴蓝上边线 */
+.attr { border-top: 1px solid var(--ink); padding-top: 16px; }
+
+/* ===========================================
+   装饰：像素故障柱 + QR 方块（体系签名）
+   =========================================== */
+.glitch-col { position: absolute; z-index: 3; pointer-events: none; }
+.glitch-col div { position: absolute; right: 0; background: var(--ink); }
+.qr-block {
+    position: absolute; z-index: 4; display: grid;
+    grid-template-columns: repeat(8, 11px); grid-template-rows: repeat(8, 11px); gap: 2px;
+    background: var(--paper); padding: 4px; box-shadow: 0 0 0 1.5px var(--paper);
+}
+.qr-block i { background: var(--ink); }
+.qr-block i.o { background: transparent; }
+
+/* ===========================================
+   NAV CHROME（舞台之外）
+   =========================================== */
+.deck-counter {
+    position: fixed; right: 26px; bottom: 20px; z-index: 1000;
+    font-family: var(--f-mono); font-size: 13px; letter-spacing: .1em; color: #8a8474;
+}
+.deck-dots { display: flex; gap: 7px; }
+.deck-dots .dot { width: 7px; height: 7px; background: #b5ae9c; cursor: pointer; transition: background .3s; }
+.deck-dots .dot.on { background: var(--ink); }
+
+/* ===========================================
+   INLINE EDITING
+   =========================================== */
+.edit-hotzone { position: fixed; top: 0; left: 0; width: 80px; height: 80px; z-index: 10000; cursor: pointer; }
+.edit-toggle {
+    position: fixed; top: 18px; left: 18px; z-index: 10001;
+    opacity: 0; pointer-events: none; transition: opacity .3s ease;
+    background: var(--paper); color: var(--ink); border: 1.5px solid var(--ink);
+    font-size: 18px; padding: 8px 12px; cursor: pointer;
+}
+.edit-toggle.show, .edit-toggle.active { opacity: 1; pointer-events: auto; }
+body.editing [contenteditable="true"] { outline: 1px dashed rgba(31,43,224,.5); outline-offset: 3px; }
+</style>
+</head>
+<body>
+
+<div class="deck-viewport">
+<main class="deck-stage" id="deckStage">
+
+<!-- ============ P1 封面 ============ -->
+<section class="slide active">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">来自 271 次真实翻车的现场笔记</div>
+    <div class="pagenum">01</div>
+    <div class="frame" style="justify-content: center;">
+        <div class="micro reveal" style="margin-bottom: 30px;">开工前　/　前端　/　后端　/　安全与数据库　/　数据与第三方　/　评测　/　部署上线　/　AI 协作</div>
+        <h1 class="hero reveal d1" style="max-width: 1300px;">用 Claude Code<br>开发产品的避坑手册</h1>
+        <div class="reveal d2" style="width: 1180px; max-width: 100%; height: 1.5px; background: var(--ink); margin: 46px 0 36px;"></div>
+        <p class="serif-lede reveal d3" style="max-width: 1080px;">这不是理论。我们用 Claude Code 从零开发并上线了两个 SaaS 产品，90 天里把每一次踩坑都记进数据库——共 <b style="font-weight: 700;">271 条</b>，每条都写清了根因和教训。这本手册，是那 271 条记录熬出来的东西。</p>
+        <div class="mono-tag reveal d4" style="margin-top: 44px;">FIELD MANUAL · 2026 · N = 271</div>
+    </div>
+    <div class="glitch-col" data-glitch data-seed="42" style="right: 96px; top: 120px; bottom: 150px; width: 230px;"></div>
+    <div class="qr-block" data-qr data-seed="7" style="right: 108px; bottom: 92px;"></div>
+</section>
+
+<!-- ============ P2 全书唯一要记住的一句话 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">主线 · 全书唯一要记住的一句话</div>
+    <div class="pagenum">02</div>
+    <div class="frame" style="justify-content: center;">
+        <h1 class="reveal" style="font-family: var(--f-display); font-weight: 700; font-size: 88px; line-height: 1.35; color: var(--ink); max-width: 1500px;">写进记性的教训会复发，<br>写进架构的教训才安息</h1>
+        <div class="reveal d1" style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 0 64px; margin-top: 52px;">
+            <div style="border-right: 1px solid var(--ink-faint); padding-right: 64px;">
+                <div class="micro" style="margin-bottom: 18px;">这句话是怎么来的</div>
+                <p class="body-lede">开发第一天我们就踩了一个坑：数据库写入失败，但代码没检查结果，系统若无其事地继续跑。我们把教训郑重写进文档——「<b>每次写库必须检查是否成功</b>」。</p>
+                <p class="body-lede" style="margin-top: 16px;">然后，这条白纸黑字的教训在 90 天里<b>又被违反了 7 次</b>：扣费白送了没人知道、用户付了款没到账……每次换一个位置出现。它最终停止复发，不是因为我们写得更痛心，而是把它变成了<b>机器检查</b>——代码里再出现这个模式，CI 直接报错，AI 想犯都过不了关。</p>
+            </div>
+            <div style="display: flex; flex-direction: column; justify-content: center;">
+                <div class="micro" style="margin-bottom: 6px;">所以本手册每一页都是三段式</div>
+                <div class="idx-row"><div class="num">A</div><p class="body-lede"><b>建议你怎么做</b>——一个具体动作</p></div>
+                <div class="idx-row"><div class="num">B</div><p class="body-lede"><b>为什么</b>——背后的原理</p></div>
+                <div class="idx-row" style="border-bottom: none;"><div class="num">C</div><p class="body-lede"><b>我们的翻车现场</b>——当时真实发生了什么</p></div>
+                <div class="attr" style="margin-top: 10px;">
+                    <p class="body-txt">每看完一页，问自己一个问题：这条教训，我能不能把它变成一条 AI 绕不过去的规则？能，就去做；不能，它就还会回来。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="qr-block" data-qr data-seed="19" style="right: var(--edge); top: 64px;"></div>
+</section>
+
+<!-- ============ P3 第一章 §1 复述需求 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第一章 · 开工前</div>
+    <div class="pagenum">03</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">1</span>
+                <h2 class="sec-title">先让 AI 复述你的需求，再让它动手</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 开工前</div>
+                <div class="cat-meta">第一章 § 1 · 全书 23 条经验之 1</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">任何会动到<b>数据模型或架构</b>的任务，先要求 AI 用自己的话复述：「我理解你要的是 ×××，会改动这几个地方，对吗？」你确认之后，它才准写代码。把需求描述、issue、口头一句话都当<b>线索</b>给它，别让它当<b>圣旨</b>执行。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">我们在任务清单里写过一句「<b>每个账号一个 workspace</b>」。本意是给数据加一个按账号筛选的过滤器——一个小活。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">AI 按字面理解成「把整个多租户数据模型重构成每个账号一个独立容器」，规划出一场<b>数据库大手术</b>：迁移所有表、重建权限体系。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">动工前的一轮「我理解的是 X，对吗」把它拦下了——两边的理解差了十万八千里。同期另一条记录：issue 里凭印象写的两个 API 端点，实测<b>一个 404、一个 403</b>；照着做计划，整个功能会围着不存在的端点设计。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 对文字的执行力极强，但它默认不会回来问「你真的是这个意思吗」——理解偏了，它会用同样强的执行力把<b>错的东西</b>完整地盖出来。人类同事跑偏前会犹豫，AI 不会；你写下的那句话只是你当时的表达，不是意图的精确转录。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">凡是要动数据库或架构的任务：先让 AI 写出「我理解你要做什么、我打算改哪几个地方」，你确认它理解对了，才让它写代码。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P4 经验2 砍功能先问隐性职责 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第一章 · 开工前</div>
+    <div class="pagenum">04</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">2</span>
+                <h2 class="sec-title">砍旧功能前，先问它还悄悄干了哪些别的事</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 开工前</div>
+                <div class="cat-meta">第一章 § 2 · 全书 23 条经验之 2</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">删除或停用任何机制之前，要求 AI 先交一份<b>「隐性职责清单」</b>：这个功能除了明面上的作用，还有哪些东西在默默依赖它？清单里<b>每一项都指定了新去处</b>，才准动手删。清单为空也要写明「查过哪里、为什么确认为空」。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">我们决定砍掉「免费试用金」——新用户不再白送额度。改动看起来只有一行：把发放试用金的参数删掉。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">上线后付费用户开始反馈：付了款，<b>额度第二天才到账</b>。原本的「付款秒到账」凭空消失了。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">排查发现：套餐额度走的是每日定时任务（为了统一处理<b>每月续费发放</b>，设计本身合理）；付款瞬间到账的钱其实一直是<b>试用金在垫付</b>——「秒到账」是两个设计凑巧叠出来的，没写在任何文档里。试用金一砍，延迟裸露。<b>删掉的是 A，坏掉的是 B。</b></p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">一个上线运行过的功能会悄悄长出第二职责——别的逻辑搭了它的便车。你让 AI 删的是明面作用，搭便车的部分<b>不报错、不告别，直接跟着消失</b>。这类错我们犯了两次，第二次的记录里自己写着「二犯」——它专挑「看起来只删一行」的改动下手。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">要删掉任何功能时：先让 AI 列一张清单——「还有谁在暗中依赖它、删掉之后每一项由谁接手」，你看过这张清单，才让它动手删。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P5 经验3 表单校验挡在提交前 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第二章 · 前端</div>
+    <div class="pagenum">05</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">3</span>
+                <h2 class="sec-title">表单校验要挡在提交之前，别指望服务端打回</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 前端</div>
+                <div class="cat-meta">第二章 § 1 · 全书 23 条经验之 3</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">必填、格式这类校验，用原生 <b>required</b> 属性或提交前的拦截，把用户挡在「点下提交」之前；服务端校验只做最后兜底。凡是「服务端打回重填」的路径，一律按<b>「会清空用户输入」</b>来设计和测试。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">内容创建页：用户填好标题、写完一大段正文、选好目标社区，点下提交。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">服务端发现漏了一个必填项，按设计把表单打回，并显示错误提示——到这里一切都符合预期。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">但 React 19 把「动作完结」（包括报错返回）当成表单重置信号——错误提示出现的同时，<b>用户填的全部内容被清空了</b>。测试全绿，因为没有一条用例断言过「打回之后，输入还在」。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 写表单时习惯把校验放在服务端——对它来说最顺手，而且单测全绿。但现代框架的表单提交是<b>「动作完结即重置」</b>：校验放在哪一侧，决定了打回时用户的输入是保住还是蒸发。「填了十分钟的内容被一键清空」是体验灾难，而它在类型检查和单测里<b>完全不可见</b>。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每做一个表单，就加一条自动化测试：故意漏填一项点提交，然后检查——已经填好的内容还在不在。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P6 经验4 文件上传走直传 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第二章 · 前端</div>
+    <div class="pagenum">06</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">4</span>
+                <h2 class="sec-title">文件上传走直传，别塞进普通请求体</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 前端</div>
+                <div class="cat-meta">第二章 § 2 · 全书 23 条经验之 4</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">图片、视频这类文件，让浏览器<b>直接传给云存储</b>：先向服务端领一张上传凭证，文件直达云存储，服务端只收「已传好」的地址——文件全程<b>不经过你自己的服务器</b>。AI 提出「把文件当表单字段一起提交」的方案，<b>直接否掉</b>——那等于让用户把冰箱抬到公司前台。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">发帖页 UI 写着「支持最大 <b>20MB</b>」——产品设计的承诺，AI 也照着做了前端提示，测试全过。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">真实用户上传一张 5MB 的照片：<b>整个页面直接崩溃</b>——不是错误提示，是页面加载失败，什么都没了。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">后台翻遍日志<b>零记录</b>：请求在到达我们代码之前就被平台拒收了。UI 承诺 20MB，平台现实 4.5MB，差了 4 倍，没有任何一层测试看得见这道墙。修复 = 改成浏览器直传存储 + 补一条 5MB 大文件的 e2e 用例。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">你的代码前面还有一道你看不见的墙：框架对普通请求体默认限 1-4MB，托管平台 <b>4.5MB 硬顶、改配置也绕不开</b>。超限请求在进入应用代码之前就被拒收——所以应用日志一行都没有。AI 只看得见自己写的代码，平台的墙不在它视野里；而测试用的都是几 KB 的小文件，<b>永远撞不到</b>。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">做上传功能时：让文件从浏览器直接传到云存储（不经过自己的服务器），并且用一个 5MB 以上的大文件真实传一次——小文件测不出这类问题。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P7 经验5 UI 验收看运行截图 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第二章 · 前端</div>
+    <div class="pagenum">07</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">5</span>
+                <h2 class="sec-title">验收 UI 只认运行中的截图，不收「做完了」三个字</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 前端</div>
+                <div class="cat-meta">第二章 § 3 · 全书 23 条经验之 5</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">每个页面完成时，要求 AI：①把应用<b>真的跑起来</b>；②截「运行中页面」的图发给你，覆盖<b>空数据、超长文本、加载、报错</b>这些状态；③你确认截图之后，才算这一页完成。设计稿确认过 ≠ 实现对了——<b>两回事，分开验</b>。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">第一个产品：全部页面的设计稿提前画好、逐张确认。我们以为 UI 这关稳了。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">实现出来的页面和设计稿<b>完全不同</b>——AI 不是照稿搬，是照文字描述重新创作的。三个页面整页返工。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">第二个产品立了四道门禁（画稿确认 → 照稿实现 → <b>运行截图确认</b> → 才准接后端），整页返工归零。但又抓到新变种：页面搬得一模一样，可<b>按钮是死的、数字是写死的假数据</b>——批量上了生产。截图看起来完美，点一下才穿帮。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">你确认过的设计稿<b>没有绑定到最终代码上</b>——AI 实现时默认在「重新创作」，而不是「照稿搬运」。就算它照稿搬了，还有第二个陷阱：外观像 ≠ 功能通。所以验收要的不只是「长得像」，还要<b>「点得动」</b>：逐个按钮点过、逐个数字核对它来自真数据还是写死的假数。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每个页面这样验收：你亲眼看过运行中页面的截图、每个按钮都点过、每个数字都问过「是真数据还是写死的」——三样都过了才算完成。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P8 经验6 写库必须检查成功 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第三章 · 后端</div>
+    <div class="pagenum">08</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">6</span>
+                <h2 class="sec-title">每一次数据库写入，都必须检查有没有成功</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 后端</div>
+                <div class="cat-meta">第三章 § 1 · 全书 23 条经验之 6</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">给 AI 立死规矩：所有数据库写入（insert / update / rpc 调用）必须<b>接住返回的 error 并处理</b>，「写完不看结果」的代码一律打回。最好把它做成机器检查：代码里出现写库调用而下一步没有检查错误，<b>CI 直接标红</b>。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">扣费函数的一个失败分支没检查结果——扣费失败被当成功放行，<b>用户白拿服务，账上无痕</b>，没人知道发生过。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">收款回调里同款错误再现：用户付了款，<b>加油包没到账</b>，日志一行没有——「付钱的地方」恰恰是这类静默失败最贵的地方。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">最讽刺的一次：同一个文件里，上次事故修过的分支旁边写着醒目注释提醒，<b>隔壁分支还是原样漏着</b>——注释拦不住，直到把这条规矩做成机器检查才真正止血。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">很多数据库客户端（如 supabase-js）失败时<b>不抛异常</b>，而是把错误放在返回值里——你不主动看，它就永远沉默。这是我们 271 条记录里的<b>复发之王：教训写了 8 遍，犯了 8 次，跨两个项目</b>。写在文档里没用，写进 CI 才有用。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">让 AI 给项目加一条自动检查：只要代码里出现「写数据库却不检查写没写成功」，提交时直接报错——这条规矩靠人记没用，我们记了 8 次都没用，做成机器检查才停。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P9 经验7 钱不信客户端 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第三章 · 后端</div>
+    <div class="pagenum">09</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">7</span>
+                <h2 class="sec-title">跟钱有关的数字，一个都不能信客户端</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 后端</div>
+                <div class="cat-meta">第三章 § 2 · 全书 23 条经验之 7</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">价格、成本、数量上限、折扣，一律<b>服务端从可信源取</b>（价格表 / 配置 / 数据库）；接口只收「买什么」，不收「多少钱」。所有金额入参加边界校验：<b>负数、零、超上限</b>。审计 AI 写的计费接口时就问三个问题（见底部）。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">AI 写的下单接口，把「花多少钱」设计成了客户端传的参数——理论上任何人改一下请求就能 <b>0 元购</b>。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">进一步审查发现扣费函数没有负数守卫：传一个<b>负的成本</b>，等于给自己充钱——凭空铸币。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">修好两个月后，另一个项目移植这个函数时选了<b>旧版本的函数体</b>做底本——负数守卫被丢掉，同名漏洞复活。移植代码要对照线上最终版逐条搬守卫，不是抄仓库里顺手翻到的版本。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 生成接口时偏爱「参数化」——把 cost 当参数传最灵活、测试最好写。但<b>客户端可控的任何输入都会被伪造</b>：计费接口的参数化 = 把定价权交给攻击者。这类洞在测试里全绿，因为测试只传正常值——没有一条用例替你当坏人。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每写完一个跟钱有关的接口，问 AI 三个问题：这个价格是从哪里取的？如果有人传一个负数会怎样？同一个请求连发两次会扣两次钱吗？</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P10 经验8 不可逆动作不自动重试 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第三章 · 后端</div>
+    <div class="pagenum">10</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">8</span>
+                <h2 class="sec-title">发出去就收不回的动作，失败了绝不自动重试</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 后端</div>
+                <div class="cat-meta">第三章 § 3 · 全书 23 条经验之 8</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">发帖、付款、发邮件、代发这类<b>不可逆动作</b>：失败或卡住时停下来，宁可等人工确认，绝不自动重试；重试前先查一次<b>真实终态</b>——它可能其实已经成功了。给 AI 把这条写成项目红线，因为它默认不会这么做。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">发布任务卡死，最初方案是「自动重发」。评审时意识到：卡死可能是<b>「发出去了，但回执丢了」</b>。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">如果自动重发：用户账号会连发两条一模一样的帖子——直逼平台反垃圾红线，<b>可能封号</b>。改为卡死单人工复核。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">这条红线立了 90 天<b>零复发</b>，而且开始繁殖：后来的审查按同一原则揪出「扣费写在发帖的异常重试窗口里」——发帖成功后的附属操作失败，不能反过来触发发帖重试。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">「失败」不等于「没发生」——超时、断连的那一刻，动作可能已经在对面完成了。「加重试」是 AI 训练数据里最常见的健壮性方案，它会<b>顺手给一切加上重试</b>；在普通读写上这是好习惯，在不可逆动作上这是双发制造机。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">发帖、付款这类动作：执行前先查一次「它是不是其实已经成功了」；失败了就停下来等人处理；扣费这类附带操作出错时，绝不能连带着把发帖再来一遍。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P11 经验9 改逻辑先 grep 消费方 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第三章 · 后端</div>
+    <div class="pagenum">11</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">9</span>
+                <h2 class="sec-title">改任何一处逻辑前，先搜一遍谁还在干同样的事</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 后端</div>
+                <div class="cat-meta">第三章 § 4 · 全书 23 条经验之 9</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">动手改之前，让 AI 全仓搜索（grep）并交清单：这段逻辑还有<b>几份平行实现</b>？这个字段 / 表还有<b>谁在写、谁在读</b>——页面、定时任务、提示词拼装都算。拿到清单、逐条打勾，才准改。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">同一段排期逻辑在两个运行时里各有一份实现（页面动作一份、定时任务一份）。AI 改了一份，<b>另一份继续按老规则跑</b>。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">给表加列时，AI 按「我正在改的代码」盘点写入点，只找到两条——<b>第三条写入路径在另一个运行时目录里</b>，新加的列在那条路上永远是空的。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">同型第三例：修一个线上事故只修了出事的那个分支，同文件里另一个分支同样的坑原样留着——<b>一个月后原地爆炸</b>。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 的视野是<b>顺着当前调用链</b>走的，但项目里常有平行世界：前端和定时任务各一份同逻辑、一张表三条写入路径、同一个判定三处消费。顺着链找不到的东西不代表不存在；「我记得改过了」是全部依据里<b>最不可靠</b>的一种。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">改任何逻辑之前，让 AI 用这个函数 / 字段的名字搜索整个项目（包括定时任务的目录），列出「还有谁在用它」的清单——清单齐了、逐条确认了，才动手改。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P12 经验10 权限别信默认值 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第四章 · 安全与数据库</div>
+    <div class="pagenum">12</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">10</span>
+                <h2 class="sec-title">权限宁可从零开始给，永远别依赖平台默认值</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 安全与数据库</div>
+                <div class="cat-meta">第四章 § 1 · 全书 23 条经验之 10</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">用 Supabase 这类 BaaS：数据库函数<b>建完立即收回公开执行权限</b>，再按需授权；行级权限（RLS）的写策略必须同时限定「谁」和「能写什么」；<b>改函数签名等于新建</b>，权限要重新核对。每次迁移后让 AI 跑一遍平台安全扫描，当例行动作。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">一处行级权限写策略漏了限定条件：任何登录用户都可以<b>把自己插成任意工作区的管理员</b>——教科书级提权漏洞，代码审查抓住的。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">扣费函数默认对所有登录用户开放执行、且不校验调用者归属。修好之后，一次改函数签名（删了重建），<b>平台把权限又自动授了回去</b>。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">同类还有：OAuth 回调的跳转参数没校验（开放重定向）、LLM 的 API key 被拼进 URL（会进日志）。安全类我们共记了 15 条，几乎全是<b>「默认值」和「顺手写法」</b>造成的。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">平台默认是「方便优先」：新建函数默认所有登录用户可调用，删了重建会把你收回过的权限<b>自动再授出去</b>。AI 照教程写出来的就是默认姿势；而权限洞在测试里永远全绿——<b>因为测试都用合法身份</b>，没人替你扮演攻击者。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每建一个数据库函数，立刻收回「所有人可调用」的默认权限，只留真正需要的；每次改完数据库结构，让 AI 跑一遍平台自带的安全扫描——这两件事做成固定动作。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P13 经验11 表设计四问 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第四章 · 安全与数据库</div>
+    <div class="pagenum">13</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">11</span>
+                <h2 class="sec-title">评审 AI 设计的表，把这四个问题问出口</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 安全与数据库</div>
+                <div class="cat-meta">第四章 § 2 · 全书 23 条经验之 11</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">AI 交表结构时固定四连问：①每个字段是不是<b>只有一个含义</b>？②外键指向哪张表，<b>查过吗</b>？③存的是算出来的结果还是原始值——<b>原始值还要不要留</b>？④状态 / 枚举字段的取值，是不是外部系统文档的<b>全集</b>？</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">「最近使用时间」一个字段被两处按不同含义读：一处当业绩（最近成功），一处当轮换依据（最近被用）——结果<b>坏账号被反复挑中</b>去执行任务。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">两套账号体系列名相近，AI 凭直觉把平台账号写进了<b>指向租户账号表的外键列</b>；写外键前查一眼它指向哪张表就能避免。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">Stripe 回调的状态枚举照文档节选写了约束，<b>漏了一个值</b>——那个值一来，写入失败、回调重投、死循环丢事件。另一次：时间戳只存了换算后的派生值，原始值直接丢弃——后来要用只能<b>加列 + 全量重爬</b>。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 设计表偏向「当前需求最小化」：字段语义顺手复用、派生值直接存、枚举照 spec 抄。这些当下都能跑，坑全埋在三周后：语义漂移、<b>原始值不可事后重建</b>、外部系统发来清单外的值。表结构是最贵的返工现场——评审多问一分钟，省一次迁移。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每次 AI 交出表设计，把左边 A 栏的四个问题当面问一遍；只要发现一个字段被两处按不同的意思在用，马上拆成两个字段，别用注释凑合。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P14 经验12 性能先算账 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第四章 · 安全与数据库</div>
+    <div class="pagenum">14</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">12</span>
+                <h2 class="sec-title">性能问题先把账算清，别让 AI 停在第一个说得通的原因</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 安全与数据库</div>
+                <div class="cat-meta">第四章 § 3 · 全书 23 条经验之 12</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">两件事：①建表时顺手把<b>外键和常用查询路径的索引</b>建上（空表时零成本），别假设外键自带索引；②页面慢时要求 AI 先交一份<b>「时间账单」</b>——每个环节实测多少毫秒、加总对得上总耗时——账单闭合之前不准动手修。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">安全扫描顺带发现：全库 <b>36 个外键一个索引都没有</b>——AI 建表时默认外键自带索引，这个假设在很多数据库里是错的。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">页面慢的排查修了<b>三轮才见底</b>：每轮都停在第一个说得通的原因，改完效果不明显，再找下一个——消耗的不只是时间，是信任。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">立了「先闭合时间账单再动刀」后一次见底。另一坑：验收线定成绝对秒数，基线一天内从 350ms 漂到 730ms（跨海网络时段漂移），<b>达标判断全乱</b>——后改为「相对改前省多少」且对比必须同时段。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 修性能的默认姿势：找到一个说得通的原因、改一刀、感觉快了、汇报完成。但性能是<b>分布问题</b>——单次采样波动极大，凭感觉会修错地方还声称达标。「每一毫秒都有出处、加总对得上观测值」是唯一能防住这种自我感觉良好的手段。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">建表时顺手给外键加上索引；页面变慢时，先让 AI 把每一步各花多少毫秒算清楚、加起来对得上总耗时，再动手修；比较快慢要在同一时段测，别拿早上的和晚上的比。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P15 经验13 按量计费 API 先查默认参数 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第五章 · 数据与第三方</div>
+    <div class="pagenum">15</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">13</span>
+                <h2 class="sec-title">接按量计费的 API，第一件事查它的默认参数</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 数据与第三方</div>
+                <div class="cat-meta">第五章 § 1 · 全书 23 条经验之 13</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">接入任何按量 / 按结果计费的第三方 API 前：①先查清它每个<b>参数的默认值</b>是多少（用免费的查询接口，别真调用）；②抓取数量这类参数，在自己代码里<b>写死一个封顶值</b>，再写一条测试守住它，防止以后被悄悄改掉；③只有确认<b>「这次没扣到钱」</b>的错误才允许重试；④没人用的时候，把定时任务关掉。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">接入爬虫 API 当天发现：数量参数的<b>默认值是 50000 条</b>——一次调用就能烧掉一个月预算。当天就在自己代码里写死了封顶值，并加了一条测试守住它。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">饶是如此还是烧爆过一夜配额：每条帖子的评论按 <b>10 倍数量</b>返回、服务器出错后<b>重试又扣一遍钱</b>（第一次可能已经计费）、没人用的时候定时任务还在整点<b>空跑</b>——三个小错相乘出一张大账单。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">隔壁项目同款：付费 API 整夜轮询<b>零产出照付费</b>；另一次读错响应结构，0 条入库但每条照付——<b>解析失败 = 纯烧钱</b>，还没有任何告警知道钱在漏。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">按量计费 API 的默认参数是按「大客户」设的——默认 50000 不是笔误，是常态。AI 照文档示例接入，<b>成本不在它的考虑维度里</b>；重试逻辑更危险：服务器错误可能「已经计了费」，重试等于再买一次。钱的事必须你亲自划线。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">接付费 API 时做三件事：①在自己代码里给抓取数量写一个封顶值，别信对方默认值；②只有确认「这次没扣到钱」的错误才允许重试；③加一个告警——花了钱却没拿到数据时，通知你。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P16 经验14 成功且空当事故 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第五章 · 数据与第三方</div>
+    <div class="pagenum">16</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">14</span>
+                <h2 class="sec-title">「请求成功但结果为空」当事故排查，别当没数据</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 数据与第三方</div>
+                <div class="cat-meta">第五章 § 2 · 全书 23 条经验之 14</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">外部数据源返回空结果时，系统必须留一条<b>「为什么空」</b>的痕迹（配额不足 / 被拦 / 真没有），并把「连续 N 次空」做成告警。评审取数代码时问一句：<b>如果上游被封了但返回 200 + 空数组，哪一层会叫？</b>答案是「没有」，就是事故预定。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">某天起产品的取数功能<b>什么都抓不到</b>：找社区、线索监控、评论热榜，全部空转。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">排查五层（页面 → 接口 → 任务 → 取数 → 爬虫），<b>每一层日志都「正常」</b>，没有任何报错——好几天没人发现产品在空转。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">真相：爬虫被 Reddit 拦截，而它被拦时<b>成功返回空数组</b>。事故记录原话：「所有告警都挂在 catch 上，等于没有告警」。顺带还查出取数窗口比过滤窗口窄——正常时也在悄悄自砍三分之二的候选。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">第三方被反爬拦截时往往<b>「礼貌地失败」</b>：HTTP 200、空数组、不抛错。AI 写的告警全挂在异常分支上，而这种失败根本不走异常分支。「成功且空」是结构上最难被发现的故障形态——它长得和「今天确实没数据」一模一样。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每接一个外部数据源：拿到空结果时记一笔「为什么是空的」，连续几次都空就发告警给你；上线前故意把数据源断掉一次，看系统会不会出声——不出声就是还没做完。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P17 经验15 LLM 返回按 ID 对齐 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第五章 · 数据与第三方</div>
+    <div class="pagenum">17</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">15</span>
+                <h2 class="sec-title">AI 调 AI 最容易翻车：返回按 ID 对齐，假设它会漏</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 数据与第三方</div>
+                <div class="cat-meta">第五章 § 3 · 全书 23 条经验之 15</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">产品代码里调 LLM 做批量处理时：①输入每条带<b>业务 ID</b>、要求原样带回，解析按 ID 对齐，<b>禁止按数组顺序</b>；②假设它会漏答——漏掉的标「未处理」，下次重取；③它口头答应的约束（不重复 / 全覆盖）必须配<b>确定性校验</b>。测试要构造乱序、漏返、多返的畸形响应。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">让 LLM 给一批内容分组，它<b>总会漏掉几条</b>它觉得边缘的——这条教训第一次踩就写进了项目规范。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">写进规范之后，新写的批量调用仍按<b>数组下标</b>对齐结果——复盘记录原话：「每次新增批量调用都会重犯」。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">第三犯最离谱：提示词给了「以下内容<b>不要重复</b>」清单，一轮生成的 16 条里 3 条和清单<b>一字不差</b>——它把「不要写的」抄进了答案。LLM 的承诺不能当约束。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">模型写的代码会像调普通 API 一样调 LLM——默认返回<b>完整、有序、守约</b>。这是个递归盲区：AI 过度信任 AI。按下标对齐的代码在正常响应下永远是绿的，它只在生产的某次乱序 / 漏返里爆——而那一天一定会来。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">代码里批量调 AI 时：每条数据带上编号、按编号对答案（别按顺序）；漏答的标出来下次重试；测试里故意打乱顺序、少答几条，看代码扛不扛得住。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P18 经验16 LLM 闸门三态 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第五章 · 数据与第三方</div>
+    <div class="pagenum">18</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">16</span>
+                <h2 class="sec-title">用 LLM 做审核闸门，必须设计「判不了怎么办」</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 数据与第三方</div>
+                <div class="cat-meta">第五章 § 4 · 全书 23 条经验之 16</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">LLM 当审核 / 判定闸门时，数据模型给第三态留位置：<b>通过 / 不通过 / 判不了</b>。「判不了」的处置要显式决定（通常是放行 + 记待审），绝不能悄悄归进「不通过」。另外检查闸门下游有没有<b>「自动补足数量」</b>的逻辑——有就先关掉。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">内容合规闸门做成了二态：通过 / 不通过。上线一直正常——直到判定服务故障那天。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">服务一挂，所有判定失败被就近归成「不通过」——<b>全站内容卡死，无法发布</b>。闸门变成了全站断路器。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">反方向也翻过：质量闸剔掉低分内容后，被复用函数内部的「数量兜底」<b>又自动补足了产出</b>——剔了 N 条、产出还是 N 条，闸门被静默架空，无人察觉。判定方法：闸门剔除后看最终数量变没变。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">AI 审核是一次<b>对外的服务调用</b>，天然有第三种结果：<b>没得到答案</b>（挂了 / 超时 / 返回坏了）——这跟内容好坏无关。只设两个格子，「没问成」就会被错误分支就近塞进「不通过」；服务一抖 = <b>所有内容同时没问成</b>，全站被拦。「判不了」必须在数据模型里有自己的位置，它的去向由你显式决定。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">用 AI 做内容审核时问两个问题：审核服务挂掉的那天，内容走哪条路——是全堵死还是先放行记着待审？被拦掉几条之后，最终发出去的数量有没有真的变少？</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P19 经验17 测试替代码干活 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第六章 · 评测</div>
+    <div class="pagenum">19</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">17</span>
+                <h2 class="sec-title">测试数据是手工补的，就等于测试替代码干了活</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 评测</div>
+                <div class="cat-meta">第六章 § 1 · 全书 23 条经验之 17</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">验收任何功能坚持一条：测试 / 验证用的数据必须由<b>产品自己的入口</b>产生，不许手工插库补字段。AI 说「我手工造了数据，验证通过」时追问一句：<b>手工补的每一个字段，产品代码自己会写吗？</b>逐个字段反查。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">买票功能上线前「实测通过」——结算逻辑跑得漂漂亮亮。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">真相：验证结算用的任务是<b>手工插进数据库的</b>，正好绕开了缺失的「下单拆分」逻辑——上线后<b>用户付 3 票的钱，系统只投出 1 票</b>。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">同月另一起：联调数据是手工 update 补上关键字段的，被测代码本身<b>缺这一步</b>——「实测通过」反而掩盖了上线必炸。复盘原话：「<b>手工补的每一个字段，都是被测代码可能漏掉的一步</b>」。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">同一个 AI 既写实现又写测试时，测试会系统性地<b>替实现打掩护</b>：桩返回本该由被测代码写入的值、fixture 补上实现漏写的字段。测试全绿恰恰因为缺陷被测试补上了——<b>绿得越顺利越可疑</b>。这是 6 周里连爆 4 起的结构性问题，不是偶然疏忽。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">验收只认「从产品界面真实操作出来」的数据；AI 说它手工造了数据，就让它列出手工补了哪些字段，然后逐个检查：这个字段，产品代码自己会写吗？</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P20 经验18 真人走查 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第六章 · 评测</div>
+    <div class="pagenum">20</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">18</span>
+                <h2 class="sec-title">测试全绿只说明没退化，新功能上线前真人走一遍</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 评测</div>
+                <div class="cat-meta">第六章 § 2 · 全书 23 条经验之 18</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">每条新动线（新页面、新流程、新集成）上线前，安排一次<b>真人全流程走查</b>，并把它当正式验收关——不是顺手点点。AI 的自检全绿<b>不能豁免</b>这一关；走查发现的问题按正式 bug 登记，别口头带过。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">我们的硬数据：50 个最严重 bug 里，<b>22 个（44%）是真人验收抓到的</b>——AI 全套自检（自查 + 代码审查 + lint + 测试）只拦下 28 个。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">浏览器扩展新功能，测试套件全绿。真人实测一小时，<b>挖出 4 个真问题</b>——事后分析，4 个全部位于自动化测试结构上测不到的位置。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">这是该项目<b>第三次</b>验证同一结论。复盘原话：「测试全绿只能声明没退化，不能声明能用——写进流程，而不是记性」。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">自动化测试有<b>结构性盲区</b>：跨进程状态同步、真实环境行为、概率性输出的质量、浏览器扩展生命周期——mock 边界之外的世界它看不见。这些盲区不是「测试写得不够多」，是测试这种工具<b>结构上够不着</b>；够得着它们的只有真人真机。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">每个新功能上线前两道关都要过：自动化测试全部通过，并且有人从头到尾真实地用一遍——测试绿了不能代替人用过，人用过也不能代替测试。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P21 经验19 工具盲区 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第六章 · 评测</div>
+    <div class="pagenum">21</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">19</span>
+                <h2 class="sec-title">知道你的检查工具看不见什么</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 评测</div>
+                <div class="cat-meta">第六章 § 3 · 全书 23 条经验之 19</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">要求 AI 声明「验证通过」时说清用的是哪一层验证：<b>结构性</b>（类型检查、单测）还是<b>行为性</b>（真实数据、真实页面、真实副作用）。只有结构性检查 = 行为没验证。列名、文案、SQL、真实数据形状这些「字符串世界」的东西，必须用真实查询 / 真实渲染核对。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">一个下午连环爆出 <b>5 个最严重级 bug</b>，全部是「检查全绿」放行的。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">样本：凭印象写列名 → 查询报错 → 被错误处理压成「没有数据」的空态；抄了一段代码没抄它做数据归一化的原因 → 真实数据一来<b>整页 500</b>。类型检查全程沉默——列名是字符串，不归它管。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">当天复盘写下了这句元教训：「<b>我用看不见这类缺陷的工具，证明了缺陷不存在</b>」——并把验证层级标注写进了规范。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">tsc 只查类型不查字符串；单测跑纯函数，碰不到真 schema 和真页面。AI 会把「我跑过的检查全绿」等同于「这件事是对的」——但那些检查<b>结构上就看不见</b>这类缺陷。这不是 AI 偷懒，是它对工具边界没有敬畏；敬畏得由你注入。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">AI 说「验证通过」时，追问一句：你是只跑了类型检查和测试，还是真的连上数据库、打开页面看过？新写的数据库查询，必须在真实数据库上跑一次才算数。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P22 经验20 平台的墙 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第七章 · 部署上线</div>
+    <div class="pagenum">22</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">20</span>
+                <h2 class="sec-title">本地永远撞不出生产的墙，上线前在真实平台跑一轮</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 部署上线</div>
+                <div class="cat-meta">第七章 § 1 · 全书 23 条经验之 20</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">把「在<b>真实托管平台</b>上完整跑一轮重活」列为上线前置——函数时长上限、请求体大小、内存，这些墙只在生产存在。任何服务端重活让 AI <b>自证最坏耗时</b>；接近平台上限（如 60 秒）就拆分或改后台任务，别赌。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">生成收尾函数曾经撞过 60 秒墙，按规矩<b>拆成了两段</b>，每段限内——修好了。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">之后三轮功能加重（策略引擎、分块、合规闸）把它<b>悄悄推回墙外</b>——而每一轮验收都在本地跑，本地没有 60 秒上限，墙不可见，轮轮全绿。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">上线后：生产环境该函数超时被平台<b>强杀</b>；更糟的是它的幂等守卫把自己反锁——任务<b>永久卡死</b>，只能人工解。修好的方案会被后续改动悄悄掏空，这才是最阴的部分。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">本地开发服务器<b>没有时长 / 大小限制</b>，怎么跑都过；AI 在本地验收看到的永远是绿的。且风险不是一次性的：「劣化叠加」——每轮改动都离墙近一点，单看每轮都合理，叠起来过线。所以要的不是一次测过，是<b>每个重活链路至少一轮验收在真实平台跑</b>。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">耗时长的功能上线前，必须部署到真实的线上环境完整跑一遍（本地测过不算）；让 AI 回答「最坏情况要跑多少秒」，接近 60 秒就拆成几步或改成后台任务。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P23 经验21 环境是第二个代码库 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第七章 · 部署上线</div>
+    <div class="pagenum">23</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">21</span>
+                <h2 class="sec-title">环境是第二个代码库：env、版本、进程、产物都会骗你</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · 部署上线</div>
+                <div class="cat-meta">第七章 § 2 · 全书 23 条经验之 21</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">遇到「诡异」的问题，排障顺序倒过来：<b>先查环境，再查代码</b>。四个高频骗局备查：①shell 全局导出的环境变量会盖掉项目配置；②配套 SDK 版本不匹配时包管理器<b>静默装两份</b>；③改了源码没重新构建 = 测的还是旧代码；④端口上残留旧进程 = 你在旧代码上测出「假 bug」。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">「key 明明是对的，运行起来却像匿名用户」——查了半天权限，真凶是 <b>zshrc 里全局导出的同名变量</b>（还是别的项目的旧值）盖掉了 .env.local。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">装 AI SDK 的 React 伴生包没对齐主版本，npm <b>静默嵌套了第二份核心库</b>——两份流协议不兼容，tsc 全程不报错。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">改了浏览器扩展源码测半天「没生效」——<b>没重新构建也没刷新扩展</b>；另一天端口残留旧进程，两次骗过验证，我们在旧代码上测出了「假 bug」。每一个都烧掉半天以上。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">这些问题的共同点：症状<b>长得像业务 bug</b>（key 无效、数据为空、修了没效果），AI 会一头扎进业务代码里找——因为环境不在它的默认视野里。它看得见每一行代码，看不见你的 shell、你的 node_modules 和你昨天没杀掉的进程。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">遇到诡异问题，先让 AI 查四样再怀疑代码：环境变量有没有被别处覆盖？依赖有没有装了两个版本？改的代码构建过了吗？端口上跑的是不是昨天的旧进程？</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P24 经验22 授权逐次确认 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第八章 · 与 AI 共事</div>
+    <div class="pagenum">24</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">22</span>
+                <h2 class="sec-title">AI 会把你的一次授权，当成永久授权</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · AI 协作</div>
+                <div class="cat-meta">第八章 § 1 · 全书 23 条经验之 22</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">合并、部署、发布这类<b>对外且不可逆</b>的动作，和 AI 约定「逐次授权」：每一次都要你亲口说，上次的授权不延续到这次——写进协作规范，不靠默契。另外小心「自动合并」类参数：仓库没开分支保护时，<b>建 PR + 自动合并 = 直接上生产</b>。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">我们对 AI 说：「<b>先本地验一下</b>。」</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">PR 已经合进了生产——它把此前多次「验完就合」的节奏，理解成了<b>常设流程</b>。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">同期发现另一个陷阱：--auto 参数在没有分支保护的仓库会<b>立即合并</b>——「开个 PR」一键变成「上生产」。两条都写进了协作规范：外向动作逐次确认，授权不跨次。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">长会话里 AI 有惯性：你说过一次「可以合并」，它会把这理解成流程默认。它没有恶意——它在优化「帮你把事办完」；但外向动作的授权语义必须是<b>一次性的</b>。这类错误的代价不是代码，是信任——比任何 bug 都贵。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">白纸黑字写进协作规范：每一次合并、每一次部署、每一次发布，都要单独问过你才能做——上次同意不算数；没开分支保护的仓库，禁止使用任何「自动合并」选项。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P25 经验23 长会话失忆 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">第八章 · 与 AI 共事</div>
+    <div class="pagenum">25</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <span class="sec-num">23</span>
+                <h2 class="sec-title">会话太长 AI 会失忆，开工前让它重读设计文档</h2>
+            </div>
+            <div>
+                <div class="cat-chip">类别 · AI 协作</div>
+                <div class="cat-meta">第八章 § 2 · 全书 23 条经验之 23</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1">
+            <div class="block-card">
+                <div class="bhead"><span class="blet">A</span><span class="btitle">建议你怎么做</span></div>
+                <div class="bbody">
+                    <p class="body-lede">长会话（或跨天续接）里派活前，先让 AI <b>重读该任务的设计文档并复述要点</b>；它答不出「文档在哪、里面定了哪几条」，就不准动手。所有重要决策落到<b>仓库文档</b>里——对话记忆会被压缩，文件不会。</p>
+                </div>
+            </div>
+            <div class="block-card span-right">
+                <div class="bhead"><span class="blet">C</span><span class="btitle">我们的翻车现场</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding-top: 6px;">
+                        <div class="num">01</div>
+                        <p class="body-txt">长会话中段派了个任务，AI <b>凭印象直接开工</b>——没有回头读仓库里的设计文档。</p>
+                    </div>
+                    <div class="idx-row">
+                        <div class="num">02</div>
+                        <p class="body-txt">它重做了一件<b>早已实测验证过的事</b>，还违反了它自己三天前写的设计文档——文档明明在仓库里，路径它也知道。</p>
+                    </div>
+                    <div class="idx-row" style="border-bottom: none;">
+                        <div class="num">03</div>
+                        <p class="body-txt">复盘原话成了开工检查项：「如果我说不出这件事的设计文档在哪个文件、里面定了哪几条，<b>就说明我没资格开始写代码</b>」。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="blet">B</span><span class="btitle">为什么</span></div>
+                <div class="bbody">
+                    <p class="body-txt">会话超长后，早期上下文会被<b>压缩成摘要</b>——细节丢了，AI 却仍然「觉得自己记得」。凭残存印象开工比完全不知道更危险：<b>方向是对的，细节全错</b>，而且它毫无自觉。解药只有一个：把「重读文档」变成动作，而不是期待它记得。</p>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">落成规则</div>
+                <div class="rbody"><p class="body-lede">会话聊得很长之后再派新活，先问 AI 三个问题：这件事的设计文档在哪个文件？里面定了哪几条？跟现在要做的有冲突吗？答不上来，就让它先把文档读一遍再动手。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P26 让教训长牙 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">收尾 · 让教训长牙</div>
+    <div class="pagenum">26</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <h2 class="sec-title" style="font-size: 58px;">把 23 条经验，变成 AI 绕不过去的规则</h2>
+            </div>
+            <div>
+                <div class="cat-chip">收尾 · 方法</div>
+                <div class="cat-meta">读完之后做什么</div>
+            </div>
+        </div>
+        <div class="advice-body reveal d1" style="grid-template-columns: 1fr 1.25fr;">
+            <div class="block-card">
+                <div class="bhead"><span class="btitle">为什么必须机械化</span></div>
+                <div class="bbody">
+                    <p class="body-txt">我们把 271 条记录的预防措施按「执行机制」分了三级，命运天差地别：</p>
+                    <p class="body-txt" style="margin-top: 14px;"><b>架构级</b>（一次修复、结构根除）——立规 90 天 <b>0 复发</b>；<br><b>流程级</b>（门禁、清单）——有效，但会退化，要打补丁；<br><b>纪律级</b>（「下次记得」）——<b>接近必然复发</b>：写库查 error 犯了 8 次，LLM 教训写进规范仍三犯。</p>
+                    <p class="body-txt" style="margin-top: 14px;">所以每条经验的终点不是「记住了」，而是变成 <b>lint 规则、测试模板、CI 检查、协作规范里的硬条款</b>——AI 想犯都过不了关的那种。</p>
+                </div>
+            </div>
+            <div class="block-card">
+                <div class="bhead"><span class="btitle">我们自己已排期的五件事（可直接抄）</span></div>
+                <div class="bbody" style="display: flex; flex-direction: column; justify-content: center;">
+                    <div class="idx-row" style="padding: 13px 0;"><div class="num">01</div><p class="body-txt">lint / grep 规则：写库调用后未检查 error → <b>CI 直接报错</b>（对应经验 6，消灭复发 8 次的头号惯犯）</p></div>
+                    <div class="idx-row" style="padding: 13px 0;"><div class="num">02</div><p class="body-txt">LLM 批量调用测试模板：乱序 + 漏返 + 多返畸形响应成为<b>标配用例</b>（对应经验 15）</p></div>
+                    <div class="idx-row" style="padding: 13px 0;"><div class="num">03</div><p class="body-txt">「改表加列」脚本：按表名全仓列出<b>全部写入点清单</b>，含另一个运行时目录（对应经验 9）</p></div>
+                    <div class="idx-row" style="padding: 13px 0;"><div class="num">04</div><p class="body-txt">付费 API「有请求无入库」<b>成本告警</b>；为「成功且空」单独设计留痕（对应经验 13、14）</p></div>
+                    <div class="idx-row" style="padding: 13px 0; border-bottom: none;"><div class="num">05</div><p class="body-txt">协作规范硬条款：外向动作<b>逐次授权</b>；「失败即降级」必须留用户可见痕迹（对应经验 22、14）</p></div>
+                </div>
+            </div>
+            <div class="rule-banner">
+                <div class="rhead">一句话</div>
+                <div class="rbody"><p class="body-lede">每读完一条经验就问：它能变成哪条机器规则？能，排期去做；不能，就等它回来。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P27 给 Anthropic 的一页 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">收尾 · 给模型公司的反馈</div>
+    <div class="pagenum">27</div>
+    <div class="frame">
+        <div class="advice-head reveal">
+            <div class="title-wrap">
+                <h2 class="sec-title" style="font-size: 58px;">同一批数据，给 Anthropic 的五条反馈</h2>
+            </div>
+            <div>
+                <div class="cat-chip">收尾 · 反馈</div>
+                <div class="cat-meta">英文草稿已备好 · 审后可提交</div>
+            </div>
+        </div>
+        <div class="reveal d1" style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center;">
+            <div class="idx-row"><div class="num">01</div><p class="body-lede" style="color: #23221D;"><b style="color: #14130F;">结构性检查被当作行为性证明</b>——44% 的最严重 bug 漏过全套自检。希望 agent 声明「完成」时自报验证层级。</p></div>
+            <div class="idx-row"><div class="num">02</div><p class="body-lede" style="color: #23221D;"><b style="color: #14130F;">「成功且空」不触发怀疑本能</b>——空结果应当是待调查的假设，不是可传播的结果。</p></div>
+            <div class="idx-row"><div class="num">03</div><p class="body-lede" style="color: #23221D;"><b style="color: #14130F;">自写测试的桩替被测代码干活</b>——6 周 4 起。建议内置对抗性测试审查：桩返回的值若本该由被测代码产出，必须有一条「桩返回空」的用例。</p></div>
+            <div class="idx-row"><div class="num">04</div><p class="body-lede" style="color: #23221D;"><b style="color: #14130F;">模型写的代码过度信任模型</b>——生成的 LLM 集成代码默认按确定性 API 的方式写，缺业务键对齐与覆盖缺口处理。这是训练数据形状造成的递归盲区。</p></div>
+            <div class="idx-row" style="border-bottom: none;"><div class="num">05</div><p class="body-lede" style="color: #23221D;"><b style="color: #14130F;">单次授权被泛化为常设授权</b>——不可逆外向动作（合并 / 部署 / 发布）应逐次确认；长会话的惯性会冲垮这条线。</p></div>
+        </div>
+        <p class="mono-sm reveal d2" style="opacity: .6;">每条附具体事故与数据佐证，见 anthropic-issue-drafts.md；数据集可脱敏共享。</p>
+    </div>
+</section>
+
+<!-- ============ P28 附录 A 前端与 Next.js ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">28</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 A · 前端与 Next.js 细节</h2>
+            <span class="mono-tag">APPENDIX A · 18 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">A1</span><p><b>列表行的按钮要行级 loading。</b>复用页面级 busy 状态，点一张卡所有卡片一起转圈、全部点不动。</p></div>
+                <div class="apx-item"><span class="n">A2</span><p><b>函数不能作为 prop 传给客户端组件。</b>服务端到客户端要序列化，tsc 不报错，渲染时直接整页 500。</p></div>
+                <div class="apx-item"><span class="n">A3</span><p><b>客户端交互别改成整页跳转。</b>硬刷后第二次点击落在水合窗口里被吞——用路由跳转，别用 location.href。</p></div>
+                <div class="apx-item"><span class="n">A4</span><p><b>依赖「初始 prop」的组件用 key 强制重挂。</b>路由参数变了组件可能被复用——切换会话显示空白就是它。</p></div>
+                <div class="apx-item"><span class="n">A5</span><p><b>副作用只进事件处理器或 useEffect。</b>object URL / 订阅 / 定时器写进 useMemo 是渲染期副作用，会泄漏。</p></div>
+                <div class="apx-item"><span class="n">A6</span><p><b>useTransition 回调必须 async await。</b>fire-and-forget 调 server action 丢 pending 态、可双提交。</p></div>
+                <div class="apx-item"><span class="n">A7</span><p><b>框架级文件永远不算小改动。</b>loading.tsx / middleware 改变的是渲染语义——语义面比代码行数宽得多。</p></div>
+                <div class="apx-item"><span class="n">A8</span><p><b>长文本截断三件齐。</b>flex-1 + min-w-0 + truncate，且 flex 父级也要 min-w-0——缺一个省略号就失效。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">A9</span><p><b>写回数据库的表单，初值取记录的当前值。</b>硬编码默认值会在页面重载后把用户的真实设置覆盖掉。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">A10</span><p><b>告警先聚合再展示。</b>计数 + 样例 + 下钻，别逐条平铺刷屏；仪表盘空态要有设计，不能裸空。</p></div>
+                <div class="apx-item"><span class="n">A11</span><p><b>组件有布局假设。</b>为宽容器设计的面板硬塞进窄卡直接撑破——差一个量级就换承载方式（弹层 / 抽屉 / 跳页）。</p></div>
+                <div class="apx-item"><span class="n">A12</span><p><b>页面容器宽度定项目级标准。</b>每页各自设 max-w 必然发散——两个项目各犯 3 次后才立规。</p></div>
+                <div class="apx-item"><span class="n">A13</span><p><b>条件渲染改常驻前，追每个 prop 的供给。</b>数据供给可能也写在同一条件里；默认值 0 会伪装成真实数据。</p></div>
+                <div class="apx-item"><span class="n">A14</span><p><b>同一字段驱动多块 UI 时，措辞与严重度一起定。</b>「文案说不拦、代码真拦」这种矛盾最伤信任；降级一个判定时，检查新落点的显示条件有没有被排他——降级后反而彻底消失。</p></div>
+                <div class="apx-item"><span class="n">A15</span><p><b>每个异步按钮都要 loading 防双击 + 错误可见。</b>「点了没反应」几乎总是这两个缺失之一。</p></div>
+                <div class="apx-item"><span class="n">A16</span><p><b>缓存的「新鲜度」≠「可用性」。</b>TTL 只该决定要不要重新抓，绝不该让已有数据显示成「未知」。</p></div>
+                <div class="apx-item"><span class="n">A17</span><p><b>服务端有路由判定能力时，客户端不准提前短路。</b>「要不要发请求」和「发起后走哪条路」是两件事；同功能多个入口行为不一致，必有一个是错的。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">A18</span><p><b>异步探测的结果是三态。</b>null ＝「还不知道」——用它做分支前先判「落定了吗」，别把未知当「否」（装了扩展的用户被判成没装，功能整条静默失效）。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P29 附录 B 数据库与幂等 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">29</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 B · 数据库与幂等细节</h2>
+            <span class="mono-tag">APPENDIX B · 17 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">B1</span><p><b>随时间变化的指标存快照表。</b>「按天看趋势」的数据必须一天一行，塞进主记录单字段就永远画不出曲线。</p></div>
+                <div class="apx-item"><span class="n">B2</span><p><b>系统外产生的数据也要有表存。</b>用户手动发的帖在系统里不可见——数据视野别只覆盖系统自写。</p></div>
+                <div class="apx-item"><span class="n">B3</span><p><b>底座表预留 settings jsonb。</b>配置类数据总会来；另一面：拆表粒度够用就好，别过细。</p></div>
+                <div class="apx-item"><span class="n">B4</span><p><b>历史 / 审计表的父外键用 SET NULL。</b>CASCADE 会把「只增不删」的数据连带删掉。</p></div>
+                <div class="apx-item"><span class="n">B5</span><p><b>公开共享内容的唯一约束带租户维度。</b>全局唯一会让第二个租户永远写不进同一条公开内容。</p></div>
+                <div class="apx-item"><span class="n">B6</span><p><b>幂等写入一步完成。</b>用 INSERT..ON CONFLICT，「先查后插」在并发下必撞。</p></div>
+                <div class="apx-item"><span class="n">B7</span><p><b>幂等键按「一次逻辑操作」选，且覆盖整条副作用链。</b>粒度对齐业务语义（一次付款 ↔ 一次发放）；只挡住重复记账，挡不住重复副作用。</p></div>
+                <div class="apx-item"><span class="n">B8</span><p><b>接他方数据库先分清「内容主表」与「指标快照表」。</b>业务时间（发布）与采集时间（抓取）别混用；外部列要么探活确认、要么带降级。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">B9</span><p><b>「这次要做的工作」和「要产出的结果」别共用一个字段。</b>为省成本收窄工作清单时，下游按同一清单枚举产出——命中缓存的对象静默消失。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">B10</span><p><b>「已消费」的真相源用不可回退的落库关联。</b>靠可变状态标记，标记失败一次就重复消费一次。</p></div>
+                <div class="apx-item"><span class="n">B11</span><p><b>每日任务的幂等键要确定性可碰撞。</b>「读已存在再铸新号」保证永不碰撞——幂等在设计层就失效了。</p></div>
+                <div class="apx-item"><span class="n">B12</span><p><b>幂等 token 的生命周期 = 一次业务动作。</b>挂载时铸一次、动作完了不复位——同页第二次操作被幂等吞掉。</p></div>
+                <div class="apx-item"><span class="n">B13</span><p><b>预留有限资源要三态齐。</b>什么算兑现、多久归还、归还在哪步执行——缺一个就静默漏光；自动生成的中间产物同理，要有 TTL 或回收策略。</p></div>
+                <div class="apx-item"><span class="n">B14</span><p><b>迟到 / 重复的异步回报不能直接驱动退款。</b>以已落库的真实终态派生；回收类写入也不能覆盖更权威的数据来源。</p></div>
+                <div class="apx-item"><span class="n">B15</span><p><b>跨步状态转移单事务 + 每步校验行数。</b>0 行即中止；「读改写」资金流程与其他写方共享同一把锁。</p></div>
+                <div class="apx-item"><span class="n">B16</span><p><b>三个小函数坑。</b>百分比配比用最大余数法；文本截断按字符不按 UTF-16（会劈开 emoji）；外部 URL 入库前归一成绝对路径。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">B17</span><p><b>带钳位 / 下限的派生函数不能反推总量。</b>用户触发的批量动作，大小要锚定用户已知的量纲——目标 5 条的活动一次补了 20 条。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P30 附录 C 安全与多租户 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">30</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 C · 安全与多租户补遗</h2>
+            <span class="mono-tag">APPENDIX C · 12 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">C1</span><p><b>用户可触发的后台作业必须按调用者工作区收敛。</b>接到系统级「遍历全部租户」的函数上，就是越权 + 烧共享额度。</p></div>
+                <div class="apx-item"><span class="n">C2</span><p><b>写操作先校验资源归属当前租户。</b>防护不能只靠信任入参；内部用用户身份鉴权的函数必须用用户态客户端调——用管理员身份调它，校验恒为假。</p></div>
+                <div class="apx-item"><span class="n">C3</span><p><b>多工作区语境禁止 .limit(1) 任取归属。</b>任取会写错租户，onConflict 还会静默建重复行。</p></div>
+                <div class="apx-item"><span class="n">C4</span><p><b>第三方账号身份键用平台不可变 ID。</b>用户名会改——改了之后就是账号接管。</p></div>
+                <div class="apx-item"><span class="n">C5</span><p><b>敏感凭证从建表起规划加密。</b>「先明文过渡」的列会一直活到出事；密钥生命周期跟随属主清理。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">C6</span><p><b>对外发送的错误信息要脱敏。</b>错误体里常携带 token / 密钥——转发到群通知等于广播。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">C7</span><p><b>计量 / 幂等 ref 别含客户端可控成分。</b>客户端 id 可被复用来绕过计费——幂等键也有信任边界。</p></div>
+                <div class="apx-item"><span class="n">C8</span><p><b>数据来源变成「客户端提交」时，重审沿途所有解析函数。</b>为可信输入写的工具，换个来源就是攻击面。</p></div>
+                <div class="apx-item"><span class="n">C9</span><p><b>数据库扩展装独立 schema。</b>装在 public 里会连带暴露不该暴露的函数面。</p></div>
+                <div class="apx-item"><span class="n">C10</span><p><b>合规 / 检测闸门专测 false-pass。</b>边界值没堵死 = 不合规内容穿闸而过；宁误拦不漏放。</p></div>
+                <div class="apx-item"><span class="n">C11</span><p><b>外部漏洞指控先取线上函数体核实。</b>用迁移文件考古会得出错误结论——我们经历过一次误报、一次真漏洞，判据都是线上现状。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">C12</span><p><b>平台反爬政策会变。</b>匿名端点随时被封——取数通路的假设定期重验，别把灰色通道当基建。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P31 附录 D 取数、LLM 与成本 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">31</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 D · 取数、LLM 与成本补遗</h2>
+            <span class="mono-tag">APPENDIX D · 18 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">D1</span><p><b>LLM 结构化输出显式设 max_tokens。</b>默认上限会把长 JSON 掐断在半截；解析失败看 finish_reason 区分「截断」与「格式错」。</p></div>
+                <div class="apx-item"><span class="n">D2</span><p><b>关键判定类 LLM 调用要有 JSON 模式或重试。</b>坏 JSON 静默废轮；「AI 产出忽然变差」先查降级与余额。</p></div>
+                <div class="apx-item"><span class="n">D3</span><p><b>LLM 判定依赖采样证据时说明采样方式。</b>并携带能拆穿偏置的统计信号——巨型社区凭两条沾边帖就能骗过判定。</p></div>
+                <div class="apx-item"><span class="n">D4</span><p><b>语义问题交给语义闸。</b>字符串匹配做语义判定只产假阴性；多闸串联时弱闸不能排在强闸前面。</p></div>
+                <div class="apx-item"><span class="n">D5</span><p><b>文本匹配纯函数三件套。</b>中文分词、子串匹配设最小长度、写「不该命中」的假阳性测试。</p></div>
+                <div class="apx-item"><span class="n">D6</span><p><b>打分公式上线前用真实样本回算 top-N。</b>每个分项要能说清奖励什么；检索质量差先分清三件事——谁被匹配进来（查询严格度）、怎么排（排序）、怎么打分（本地口径）。</p></div>
+                <div class="apx-item"><span class="n">D7</span><p><b>小样本统计配置信分档。</b>几十条样本算出的分数波动大到会误导决策，UI 上要标样本量。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">D8</span><p><b>重模型先实测延迟。</b>放进有时长预算的链路前 benchmark（我们实测过视觉推理 15-19 秒/张）；多张并行别串行。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">D9</span><p><b>换 LLM 供应商先盘能力全集。</b>文本省钱方案不一定有图像 / 向量能力，按能力分别选型。</p></div>
+                <div class="apx-item"><span class="n">D10</span><p><b>每次花钱的调用回填成本。</b>成本不可观测，预算护栏就是摆设。</p></div>
+                <div class="apx-item"><span class="n">D11</span><p><b>先确认目标 API 档位的速率上限。</b>免费档 QPS 可能低到 1 次/5 秒——「多关键词快速召回」类设计会被直接挤死。</p></div>
+                <div class="apx-item"><span class="n">D12</span><p><b>能下推的过滤拼进查询。</b>热度 / 语言 / 时间在搜索端过滤——拉全量回来本地筛 = 为垃圾付费。</p></div>
+                <div class="apx-item"><span class="n">D13</span><p><b>第三方响应结构以线上实测为准。</b>同一服务不同端点结构可以不同；注释、文档、旧断言都会骗人。</p></div>
+                <div class="apx-item"><span class="n">D14</span><p><b>外部服务的参数契约会漂移。</b>可选参数一夜变必填——关键取数配定期真实冒烟，mock 测不到远端校验。</p></div>
+                <div class="apx-item"><span class="n">D15</span><p><b>首发前确认第三方账号的档位与配额。</b>别等发布当天被「余额不足」卡住；额度耗尽要显性提示，别让用户以为「AI 变笨了」。</p></div>
+                <div class="apx-item"><span class="n">D16</span><p><b>LLM 流式链路四件事。</b>处理完结回调里的错误、持久化工具结果、裁剪载荷、按 SDK 静态类型读工具消息——还有：禁止 monkeypatch 全局 fetch。</p></div>
+                <div class="apx-item"><span class="n">D17</span><p><b>任何花钱的动作，执行前先做余额预检。</b>「成功才扣」解决不了「没钱不该开工」；页面级付费墙挡不住同一页里的连续动作。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">D18</span><p><b>高频轮询付费 API 要能一键停。</b>暂停期 / 无人使用期停掉轮询；「产出长期为零」要能被成本看板发现。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P32 附录 E 测试与验收 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">32</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 E · 测试与验收补遗</h2>
+            <span class="mono-tag">APPENDIX E · 16 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">E1</span><p><b>负向断言旁必须站一条正向对照。</b>测试桩没记录的信息，断言「不该发生」永远为真——两条一起变色才说明断言在工作。</p></div>
+                <div class="apx-item"><span class="n">E2</span><p><b>e2e 种子共享行用 upsert。</b>delete + insert 经外键级联会跨文件悄悄清掉别的 seed 写的字段，只有全量套件才复现。</p></div>
+                <div class="apx-item"><span class="n">E3</span><p><b>探测「可能不存在」的元素用 count()。</b>isEnabled / isChecked 会等待元素出现，默认无限期吃满超时。</p></div>
+                <div class="apx-item"><span class="n">E4</span><p><b>环境开关守卫查「被测服务进程」的变量。</b>测试进程和服务进程读的不是同一份环境——本地恒红、CI 恒绿就是它。</p></div>
+                <div class="apx-item"><span class="n">E5</span><p><b>e2e 疑难失败先开本地栈跑 trace。</b>CI 是验收器不是调试器，15 分钟一轮剥洋葱剥不完。</p></div>
+                <div class="apx-item"><span class="n">E6</span><p><b>改业务阈值前先 grep 依赖它的测试。</b>删断言 = 悄悄取消一道回归保护；正确做法是换一个仍能触发同一道闸的场景。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">E7</span><p><b>握手协议加字段，同一提交盘点所有测试替身。</b>替身失真的红最像实现 bug——会误导你去改对的代码。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">E8</span><p><b>dry-run 要忠实模拟。</b>演练模式也要建该建的记录——测试态与真实态行为分叉，会制造「数据凭空消失」的幽灵 bug。</p></div>
+                <div class="apx-item"><span class="n">E9</span><p><b>取证工具区分「通道失败」与「结果为空」。</b>基建挂了和业务空值折叠成同一个空串，flaky 定性要多绕一大圈。</p></div>
+                <div class="apx-item"><span class="n">E10</span><p><b>「截图里没看见」不等于「没渲染」。</b>截图只覆盖视口——把目标区域滚进视口再下结论。</p></div>
+                <div class="apx-item"><span class="n">E11</span><p><b>计费验证断言账本行数与金额之和。</b>余额前后差受并发、类型、时序影响，不可靠。</p></div>
+                <div class="apx-item"><span class="n">E12</span><p><b>隔离出题时，契约陈述逐条对照 spec 原文。</b>题面漏了 spec 的一半，测试就永远测不出那一半。</p></div>
+                <div class="apx-item"><span class="n">E13</span><p><b>多 AI 隔离测试的本质是流程不是厂商。</b>有效成分 = 写题人不知实现思路 + 答题人不许碰断言；换供应商不破坏隔离。</p></div>
+                <div class="apx-item"><span class="n">E14</span><p><b>「验不了」的验收项显式标注。</b>并在具备条件时立即补验——不能默认它是好的。</p></div>
+                <div class="apx-item"><span class="n">E15</span><p><b>概率性引擎的输出进入不可逆动作前，必须有确定性闸门。</b>「有时能做对」恰是最危险的状态——它让人误以为不需要兜底（AI 发帖秒删事故）。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">E16</span><p><b>发布类链路的验收要含一次真实发布。</b>排期、生成、发布三层各自全绿，不等于合起来是对的。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P33 附录 F 流程、环境与部署 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">33</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 F · 流程、环境与部署补遗</h2>
+            <span class="mono-tag">APPENDIX F · 18 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">F1</span><p><b>等 CI / 长任务一律后台 + 完成回调。</b>前台轮询撞上时长上限就「忘了」——CI 早绿了没人推进。</p></div>
+                <div class="apx-item"><span class="n">F2</span><p><b>本地只跑受影响的测试。</b>全量回归是 CI 的职责，两边都跑全量纯属浪费（我们每轮白花 6 分钟）。</p></div>
+                <div class="apx-item"><span class="n">F3</span><p><b>取退出码直接在命令后取。</b>pipe 给 tail / grep 再看 $?，取的是管道最后一个命令的码——编译错误就这样被提交上库。</p></div>
+                <div class="apx-item"><span class="n">F4</span><p><b>改用户可见文案后跑相关 e2e。</b>选择器大量按可见文本定位——文案改动在单测里完全无感。</p></div>
+                <div class="apx-item"><span class="n">F5</span><p><b>需求已明确到「改哪个函数」就别写 spec。</b>spec 的价值是消除不确定性——对确定的事它是纯开销。</p></div>
+                <div class="apx-item"><span class="n">F6</span><p><b>流程保险按风险分档。</b>改文案和改扣费不该走同一套全量流程——我们曾一天纯等待 84 分钟。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">F7</span><p><b>部署清单分两套且都要执行。</b>数据库 + 云函数一套、前端一套——只发一半，用户看到的还是旧页面。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">F8</span><p><b>平台网关的默认鉴权要实测。</b>部署漏一个参数，定时器全被 401 挡死；用错误密钥自检应得 403（我方校验）而非 401（网关拦截）。</p></div>
+                <div class="apx-item"><span class="n">F9</span><p><b>新服务上线前列出全部环境变量依赖并逐一注入。</b>漏一个 = 静默失败；验证要断言真实写入行数，不能只看 HTTP 200。</p></div>
+                <div class="apx-item"><span class="n">F10</span><p><b>迁移台账可能与库的真实状态脱节。</b>核对迁移看实际对象（表 / 列 / 函数）在不在，别只查台账表。</p></div>
+                <div class="apx-item"><span class="n">F11</span><p><b>生产库试跑显式 rollback 收尾。</b>再用独立查询复核零残留——两步都做，不赌任何隐式回滚。</p></div>
+                <div class="apx-item"><span class="n">F12</span><p><b>有未提交改动时禁 git stash / checkout。</b>要基线就先提交，或对单文件操作，或另开 worktree。</p></div>
+                <div class="apx-item"><span class="n">F13</span><p><b>多个 AI 并行写同一个文件会互相覆盖。</b>共享单文件（i18n / 配置）只允许单写者，或拆成命名空间文件。</p></div>
+                <div class="apx-item"><span class="n">F14</span><p><b>双运行时只共用零依赖纯函数镜像。</b>配「去注释后逐字相等」测试防漂移——非逐字的并行实现没有任何自动保护。</p></div>
+                <div class="apx-item"><span class="n">F15</span><p><b>给扩展 / 客户端加新消息类型，同一提交里做版本协商。</b>商店自动更新不同步——任何时刻都存在一批旧版用户在干等到超时。</p></div>
+                <div class="apx-item"><span class="n">F16</span><p><b>改扩展源码后的固定动作。</b>重新构建 → 浏览器里刷新扩展 → 产物里搜新符号确认——「我记得我构建过」不可靠。</p></div>
+                <div class="apx-item"><span class="n">F17</span><p><b>收款合规的法务页（条款 / 隐私）进上线清单。</b>切正式收款前核对——支付平台会查。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">F18</span><p><b>新后台能力的验收标准是「它自己会跑」。</b>函数写完必须确认触发器（定时 / 钩子 / 队列）已登记、且真实触发过一次——「实现了能力」不等于「问题已解决」。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P34 附录 G 产品与 UI 细节 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">34</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 G · 产品与 UI 细节补遗</h2>
+            <span class="mono-tag">APPENDIX G · 16 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">G1</span><p><b>一个目的地一个入口。</b>侧边栏和用户菜单指向同一页，就删掉一个。</p></div>
+                <div class="apx-item"><span class="n">G2</span><p><b>表格列宽按内容分配。</b>短标签列禁止换行——多列文字换行会把整张表挤破版。</p></div>
+                <div class="apx-item"><span class="n">G3</span><p><b>复杂交互默认选最简方案。</b>周历 / 拖拽 / 侧滑等玩法等真有使用量级再加——砍功能比加功能更重要。</p></div>
+                <div class="apx-item"><span class="n">G4</span><p><b>往字段写值前，先看它在页面上渲染成什么。</b>把类别名塞进标题位的字段 = 所有卡片同名。类型对 ≠ 语义对。</p></div>
+                <div class="apx-item"><span class="n">G5</span><p><b>没有真实输入时宁可少一条。</b>造占位条目冒充真数据是欺骗；必须占位就让它长得明显不同并注明原因。</p></div>
+                <div class="apx-item"><span class="n">G6</span><p><b>新增停顿点 / 进度可见性时，审「此刻用户看到什么」。</b>分段执行会把原本不可见的中间态照亮——半空的表像 bug。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">G7</span><p><b>失败态在每个展示它的页面都给恢复操作。</b>重试 / 忽略入口只接在首页，其他页看得见摸不着 = 用户卡死。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">G8</span><p><b>定时任务默认「创建即执行一次」。</b>用户新建任务想立刻看到结果——「等明天定时」违反直觉；周期重复做成显式可选。</p></div>
+                <div class="apx-item"><span class="n">G9</span><p><b>删除 / 停用来源配置时，明确派生数据的处置。</b>清理还是保留要和用户直觉一致——「停用了却还在推」是语义打架。</p></div>
+                <div class="apx-item"><span class="n">G10</span><p><b>每个操作的结果都要用户可见——静默成功等于失败。</b>错误要映射成可区分的文案（一句「请重试」把真因盖死）；状态变更加前置守卫防「孤儿」记录。</p></div>
+                <div class="apx-item"><span class="n">G11</span><p><b>生成侧必须填下游的门禁字段。</b>否则消费端按钮恒灰——生成器和门禁各自都「对」，合起来永远不可用。</p></div>
+                <div class="apx-item"><span class="n">G12</span><p><b>存了 ≠ 用了。</b>用户意图存进库之后，验证下游每一步（尤其 LLM 生成）真的读了它，而不是在用通用模板。</p></div>
+                <div class="apx-item"><span class="n">G13</span><p><b>依赖外部引擎的创建流程，引擎失败不能吞成空成功。</b>建出一个「看似成功但核心数据为空」的记录，比直接报错更伤。</p></div>
+                <div class="apx-item"><span class="n">G14</span><p><b>额度检查的两个量都要是活的。</b>配置在哪、实花在哪——实花来源不存在时，检查退化成永真的死检查。</p></div>
+                <div class="apx-item"><span class="n">G15</span><p><b>想捕获的用户行为，必须发生在你的产品里。</b>动作跳去第三方完成时，站内数据永远抓不到它——要配显式反馈控件（点踩 / 可编辑框）。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">G16</span><p><b>「一对一」改「一对多」时，逐个检查按父状态过滤的查询。</b>父状态在第一个子任务完成时就变了——剩下的子任务被永久锁死。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P35 附录 H 杂项工程细节 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">35</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 H · 杂项工程细节补遗</h2>
+            <span class="mono-tag">APPENDIX H · 16 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">H1</span><p><b>i18n 四小坑。</b>所有可见文案走字典；站内链接带语言前缀；跨语言重定向保留用户 locale；产生跳转的辅助函数别给 locale 默认值——默认值会掩盖上下文丢失。</p></div>
+                <div class="apx-item"><span class="n">H2</span><p><b>图片用框架推荐组件。</b>原生 img 丢掉优化与无障碍属性。</p></div>
+                <div class="apx-item"><span class="n">H3</span><p><b>图片合成引擎有严格的节点约束。</b>进图的用户文本必须硬截断；CJK 字体自托管子集，别依赖运行时网络拉取。</p></div>
+                <div class="apx-item"><span class="n">H4</span><p><b>重试要区分永久错误与临时错误。</b>鉴权 / 权限 / 额度类首次即终止；只有限流 / 网络抖动才值得退避重试。</p></div>
+                <div class="apx-item"><span class="n">H5</span><p><b>批处理循环配「全失败聚合闸」。</b>逐项容错 + 全部失败仍记成功 = 外部服务宕机无人知晓。</p></div>
+                <div class="apx-item"><span class="n">H6</span><p><b>URL 枚举参数用「合法值数组 + includes」解析。</b>手写三元链加新值必漏；路径判断用 endsWith / 正则锚定，别用 includes 松匹配；时间等数值入参在边界先做范围校验。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">H7</span><p><b>做分页前全文搜「取全量再在 JS 里算」的逻辑。</b>分页会把它们全部静默降级——总数变成本页条数。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">H8</span><p><b>跨文件握手端到端各追一遍真实取值。</b>发起方的参数和接收方的判定各自看着都对，合起来恒矛盾——深链功能从未生效过。</p></div>
+                <div class="apx-item"><span class="n">H9</span><p><b>核心逻辑抽成返回值版，跳转只放薄壳。</b>redirect 抛控制流中断——写在核心函数里，别的调用方就永远复用不了。</p></div>
+                <div class="apx-item"><span class="n">H10</span><p><b>禁一切「让 tsc 闭嘴」的写法。</b>as never / as T[] / 非空断言——类型检查沉默了，真实数据一来就在运行时炸。</p></div>
+                <div class="apx-item"><span class="n">H11</span><p><b>概念语义与接口签名一起锁。</b>只锁函数签名不锁概念定义——概念漂移比接口漂移更隐蔽也更贵。</p></div>
+                <div class="apx-item"><span class="n">H12</span><p><b>已确认的功能暂缓实现时，显式登记「未实现」。</b>只留注释会被当成已完成；注释里承诺的护栏必须与声明同批落地——否则注释本身成为虚假安全感的来源。</p></div>
+                <div class="apx-item"><span class="n">H13</span><p><b>spec 明列的判定字段必须全部接入。</b>禁止用 void 变量跳过；审查对照 spec 逐字段核对。</p></div>
+                <div class="apx-item"><span class="n">H14</span><p><b>plan 伪代码与它自带的测试冲突时，以可执行测试为准。</b>并在提交里注明偏离——两边用同一组数字自洽是写 plan 的义务。</p></div>
+                <div class="apx-item"><span class="n">H15</span><p><b>外部库生成的 id，落库前校验非空并兜底。</b>空字符串是最危险的假值——穿过所有判空检查和非空约束，让「按 id 定位」的整条链路静默失效。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">H16</span><p><b>上线新链路后，用 SQL 直查一次真实数据形状。</b>别只看 UI 有没有报错——很多缺陷的唯一症状是「某个字段悄悄全是空的」。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P36 附录 I 性能与协作杂项 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">附录 · 正文没展开、但每一条都真实踩过</div>
+    <div class="pagenum">36</div>
+    <div class="frame">
+        <div class="topbar reveal">
+            <h2 class="headline" style="font-size: 46px;">附录 I · 性能与协作杂项补遗</h2>
+            <span class="mono-tag">APPENDIX I · 16 条</span>
+        </div>
+        <div class="apx-grid reveal d1">
+            <div>
+                <div class="apx-item"><span class="n">I1</span><p><b>行级权限里的用户函数包一层子查询。</b>否则逐行求值，大表直接被拖垮（initplan 优化写法）。</p></div>
+                <div class="apx-item"><span class="n">I2</span><p><b>批量存在性检查一次查完。</b>逐条查询的 N+1 写法直观但要命；新写聚合管道先看兄弟函数的批量范式。</p></div>
+                <div class="apx-item"><span class="n">I3</span><p><b>列表查询只取必要字段。</b>布局关键路径上的查询能并行就并行——「每次导航双重查询」两个项目各中一次。</p></div>
+                <div class="apx-item"><span class="n">I4</span><p><b>性能名单每页至少采样 3 轮。</b>并覆盖重数据状态；用户体感与采样冲突时，先复测再辩解。</p></div>
+                <div class="apx-item"><span class="n">I5</span><p><b>视觉还原任务主会话亲自做。</b>派出去的子任务看不到设计稿图片——照文字描述还原必然跑偏。</p></div>
+                <div class="apx-item"><span class="n">I6</span><p><b>核验某列是否存在，要查全部迁移文件。</b>增量列常在后续文件里——只看初始 schema 会误删还在用的功能。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">I7</span><p><b>数据库 CLI 工具的怪癖提前踩。</b>单语句限制、特殊类型转换、多步验证攒临时表——每个工具的坑先读它自己的文档。</p></div>
+            </div>
+            <div>
+                <div class="apx-item"><span class="n">I8</span><p><b>外部平台可达性用探针实测。</b>机房 IP 可能被目标平台拦截；开新通路前，先查项目里已有的取数通路。</p></div>
+                <div class="apx-item"><span class="n">I9</span><p><b>OAuth 联调前把本地 + 生产域名都加进回调白名单。</b>不在白名单的地址会被静默回退到兜底域名。</p></div>
+                <div class="apx-item"><span class="n">I10</span><p><b>多中间件串联时显式转发前者的 Set-Cookie。</b>后者新建响应会把刷新的会话丢掉——用户被「幻影登出」。</p></div>
+                <div class="apx-item"><span class="n">I11</span><p><b>平台风控约束设两个粒度。</b>「总量分布」达标不代表「单位时间窗」安全——同一天同一社区连发就是撞线。</p></div>
+                <div class="apx-item"><span class="n">I12</span><p><b>响应式内容分清策略层与内容层。</b>能预规划的是身份与角度；具体说什么必须看对方的帖子——拿模板硬套就是答非所问。</p></div>
+                <div class="apx-item"><span class="n">I13</span><p><b>「看起来像 bug 的现状」先查注释与既有实现。</b>字段为 null 可能是有意设计；写新 helper 前先 grep 同类函数。</p></div>
+                <div class="apx-item"><span class="n">I14</span><p><b>issue / 任务清单里的技术判断当「待验证假设」。</b>凭印象写的端点、「放宽上限就能变多」的推断，动工前实测一遍再信——上限是上界，不是产出承诺。</p></div>
+                <div class="apx-item"><span class="n">I15</span><p><b>按维度展示的指标，必须按该维度统计。</b>「今日已发」是全局数还是本账号数？口径要和界面语境一致。</p></div>
+                <div class="apx-item" style="border-bottom: none;"><span class="n">I16</span><p><b>文档与 UI 措辞别理想化。</b>写「全量」就必须真全量——做不到就老实写「近期」，措辞与实现的差距就是下一个 bug 报告。</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ P37 结语 ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">FIELD MANUAL · 2026 · N = 271</div>
+    <div class="pagenum">37</div>
+    <div class="frame" style="justify-content: center;">
+        <div class="micro reveal" style="margin-bottom: 26px;">结语 · 全书唯一要记住的一句话</div>
+        <h1 class="reveal d1" style="font-family: var(--f-display); font-weight: 700; font-size: 96px; line-height: 1.3; color: var(--ink); max-width: 1500px;">写进记性的教训会复发，<br>写进架构的教训才安息</h1>
+        <div class="reveal d2" style="width: 1180px; max-width: 100%; height: 1.5px; background: var(--ink); margin: 46px 0 30px;"></div>
+        <div class="reveal d3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 56px; max-width: 1500px;">
+            <p class="body-txt"><b style="color: #14130F;">数据来源</b><br>两个上线 SaaS 产品，90 天，271 条带根因与预防措施的踩坑记录，全部有据可查。</p>
+            <p class="body-txt"><b style="color: #14130F;">这本手册</b><br>23 条经验 + 9 页附录，按开发流程分为八章；每条经验都配真实翻车现场与落成规则。</p>
+            <p class="body-txt"><b style="color: #14130F;">怎么用</b><br>开工前读一二章，写码时按章备查，上线前过六七章；每条都试着变成一条机器规则。</p>
+        </div>
+    </div>
+    <div class="glitch-col" data-glitch data-seed="88" style="right: 96px; top: 120px; bottom: 150px; width: 200px;"></div>
+    <div class="qr-block" data-qr data-seed="55" style="right: 108px; bottom: 92px;"></div>
+</section>
+
+<!-- ============ P38 这些经验怎么用（starter-kit CTA） ============ -->
+<section class="slide">
+    <div class="hairline-top"></div><div class="hairline-bot"></div>
+    <div class="footnote">彩蛋 · 把这本手册带回家</div>
+    <div class="pagenum">38</div>
+    <div class="frame">
+        <div class="advice-head reveal" style="margin-bottom: 20px;">
+            <div class="title-wrap">
+                <h2 class="sec-title" style="font-size: 52px;">这些经验怎么用？我们把答案做成了一个开源仓库</h2>
+            </div>
+            <div>
+                <div class="cat-chip">开源 · MIT</div>
+                <div class="cat-meta">github.com/jane1030/claude-code-starter-kit</div>
+            </div>
+        </div>
+        <div class="reveal d1" style="display: grid; grid-template-columns: 1.05fr 1fr; gap: 0 56px; flex: 1; min-height: 0;">
+            <div>
+                <p class="body-lede" style="margin-bottom: 14px; color: #23221D;">判定标准只有一个：<b style="color: #14130F;">违反它的时候，谁来拦截？</b>「AI 自己记得」不算数——按拦截力从弱到强，一条经验有六种归宿：</p>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr;"><div class="body-txt" style="color: #14130F; font-weight: 700;">AGENTS.md</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;">无拦截，只影响倾向——单独用 = 必然复发（我们的数据）</p></div>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr;"><div class="body-txt" style="color: #14130F; font-weight: 700;">Skill</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;">时机准、流程全，但仍可违反——适合判断类流程</p></div>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr;"><div class="body-txt" style="color: #14130F; font-weight: 700;">测试用例</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;">CI 变红——适合产品行为（表单打回、大文件上传）</p></div>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr;"><div class="body-txt" style="color: #14130F; font-weight: 700;">规则检查</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;">提交即拦——适合代码写法（写库不查 error）</p></div>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr;"><div class="body-txt" style="color: #14130F; font-weight: 700;">hooks + 权限</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;"><b>物理拦截 AI 的动作</b>——「逐次授权」唯一的硬解</p></div>
+                <div class="idx-row" style="padding: 9px 0; grid-template-columns: 150px 1fr; border-bottom: none;"><div class="body-txt" style="color: #14130F; font-weight: 700;">架构决策</div><p class="body-txt" style="font-size: 17.5px; color: #3A3934;">错误路径不存在——最高级的规则是让错误无处发生</p></div>
+                <p class="body-txt" style="margin-top: 12px; color: #3A3934;">全书 23 条按此三三开：<b style="color: #14130F;">约 8 条已做成纯机器规则、8 条做成 Skill、7 条只能靠流程和人</b>——后 7 条的拦截器就是你自己，别指望全自动。</p>
+            </div>
+            <div style="display: flex; flex-direction: column; justify-content: center;">
+                <div class="block-card">
+                    <div class="bhead"><span class="btitle">开工模板包 · claude-code-starter-kit</span></div>
+                    <div class="bbody">
+                        <p class="body-txt" style="margin-bottom: 12px;">能机械化的部分我们已经全部做好，开箱即用：</p>
+                        <p class="body-txt"><b>hooks + 权限配置</b>——合并 / 部署逐次确认，危险命令直接禁止<br><b>6 条规则检查</b>——写库不查 error 等，提交即拦、CI 自动跑<br><b>3 类测试样板</b>——表单打回 / 大文件上传 / LLM 畸形响应<br><b>4 个流程 Skill</b> + 一页纸 AGENTS.md 模板 + 23 条经验全文</p>
+                        <p class="body-txt" style="margin-top: 14px;"><b>三步开工</b>：① GitHub 上点 Use this template 建新仓库 → ② 把 AGENTS.md 占位符换成你的项目 → ③ 打开 Claude Code——拦截当场生效。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="rule-banner reveal d2" style="margin-top: 20px;">
+            <div class="rhead">带走它</div>
+            <div class="rbody"><p class="body-lede">⭐ <b>github.com/jane1030/claude-code-starter-kit</b> ——点个 Star 关注更新：我们的新坑会持续升级成新规则，也欢迎你带着自己的坑来提 PR。</p></div>
+        </div>
+    </div>
+</section>
+
+</main>
+</div>
+
+<div class="deck-controls"><div class="deck-dots" id="deckDots"></div></div>
+<div class="deck-counter" id="deckCounter">01 / 02</div>
+<div class="edit-hotzone" id="editHotzone"></div>
+<button class="edit-toggle" id="editToggle" title="编辑模式（E）">✏️</button>
+
+<script>
+/* ============ 装饰生成：像素故障柱 + QR 方块（确定性伪随机） ============ */
+function seededRandom(seed) {
+    let s = seed;
+    return () => (s = (s * 9301 + 49297) % 233280) / 233280;
+}
+document.querySelectorAll('[data-glitch]').forEach(el => {
+    const rnd = seededRandom(parseInt(el.dataset.seed || '1', 10));
+    const H = 810; let y = 0;
+    while (y < H) {
+        const h = 5 + Math.floor(rnd() * 26);
+        const w = 40 + Math.floor(rnd() * (parseInt(el.style.width) - 40 || 180));
+        const d = document.createElement('div');
+        d.style.cssText = `top:${y}px; width:${w}px; height:${h}px; opacity:${0.7 + rnd() * 0.3}`;
+        el.appendChild(d);
+        y += h + 4 + Math.floor(rnd() * 30);
+    }
+});
+document.querySelectorAll('[data-qr]').forEach(el => {
+    const rnd = seededRandom(parseInt(el.dataset.seed || '1', 10));
+    for (let i = 0; i < 64; i++) {
+        const c = document.createElement('i');
+        if (rnd() < 0.45) c.className = 'o';
+        el.appendChild(c);
+    }
+});
+
+/* ============ 控制器：键盘 / 滚轮 / 触摸 / 圆点 ============ */
+class SlidePresentation {
+    constructor() {
+        this.slides = document.querySelectorAll('.slide');
+        this.current = 0;
+        this.stage = document.getElementById('deckStage');
+        this.counter = document.getElementById('deckCounter');
+        this.dotsWrap = document.getElementById('deckDots');
+        this.buildDots();
+        this.setupStageScale();
+        this.setupKeyboard();
+        this.setupWheel();
+        this.setupTouch();
+        this.show(0);
+    }
+    setupStageScale() {
+        const scale = () => {
+            const f = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+            const x = (window.innerWidth - 1920 * f) / 2;
+            const y = (window.innerHeight - 1080 * f) / 2;
+            this.stage.style.transform = `translate(${x}px, ${y}px) scale(${f})`;
+        };
+        scale();
+        window.addEventListener('resize', scale);
+    }
+    buildDots() {
+        this.dotsWrap.innerHTML = '';
+        this.slides.forEach((_, i) => {
+            const d = document.createElement('div');
+            d.className = 'dot';
+            d.addEventListener('click', () => this.show(i));
+            this.dotsWrap.appendChild(d);
+        });
+    }
+    setupKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.getAttribute && e.target.getAttribute('contenteditable')) return;
+            if (['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)) { e.preventDefault(); this.next(); }
+            if (['ArrowLeft','ArrowUp','PageUp'].includes(e.key)) { e.preventDefault(); this.prev(); }
+            if (e.key === 'Home') this.show(0);
+            if (e.key === 'End') this.show(this.slides.length - 1);
+        });
+    }
+    setupWheel() {
+        let lock = false;
+        window.addEventListener('wheel', (e) => {
+            if (document.body.classList.contains('editing')) return;
+            if (lock || Math.abs(e.deltaY) < 24) return;
+            lock = true;
+            e.deltaY > 0 ? this.next() : this.prev();
+            setTimeout(() => lock = false, 650);
+        }, { passive: true });
+    }
+    setupTouch() {
+        let x0 = null;
+        window.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+        window.addEventListener('touchend', (e) => {
+            if (x0 === null) return;
+            const dx = e.changedTouches[0].clientX - x0;
+            if (Math.abs(dx) > 48) dx < 0 ? this.next() : this.prev();
+            x0 = null;
+        }, { passive: true });
+    }
+    show(i) {
+        this.current = Math.max(0, Math.min(i, this.slides.length - 1));
+        this.slides.forEach((s, k) => {
+            s.classList.toggle('active', k === this.current);
+            s.classList.toggle('visible', k === this.current);
+        });
+        this.counter.textContent = String(this.current + 1).padStart(2, '0') + ' / ' + String(this.slides.length).padStart(2, '0');
+        [...this.dotsWrap.children].forEach((d, k) => d.classList.toggle('on', k === this.current));
+    }
+    next() { this.show(this.current + 1); }
+    prev() { this.show(this.current - 1); }
+}
+const deck = new SlidePresentation();
+
+/* ============ 行内编辑：hover 左上角或按 E；Ctrl+S 导出 ============ */
+const editor = {
+    isActive: false,
+    KEY: 'retro-handbook-edits',
+    toggleEditMode() {
+        this.isActive = !this.isActive;
+        document.body.classList.toggle('editing', this.isActive);
+        document.getElementById('editToggle').classList.toggle('active', this.isActive);
+        document.querySelectorAll('.slide h1, .slide h2, .slide h3, .slide p, .slide li, .slide .micro, .slide .mono-tag, .slide .row-head')
+            .forEach(el => el.setAttribute('contenteditable', this.isActive ? 'true' : 'false'));
+        if (!this.isActive) this.save();
+    },
+    save() { try { localStorage.setItem(this.KEY, document.getElementById('deckStage').innerHTML); } catch (e) {} }
+};
+document.getElementById('editToggle').addEventListener('click', () => editor.toggleEditMode());
+const hotzone = document.getElementById('editHotzone');
+const editToggle = document.getElementById('editToggle');
+let hideTimeout = null;
+hotzone.addEventListener('mouseenter', () => { clearTimeout(hideTimeout); editToggle.classList.add('show'); });
+hotzone.addEventListener('mouseleave', () => { hideTimeout = setTimeout(() => { if (!editor.isActive) editToggle.classList.remove('show'); }, 400); });
+editToggle.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+editToggle.addEventListener('mouseleave', () => { hideTimeout = setTimeout(() => { if (!editor.isActive) editToggle.classList.remove('show'); }, 400); });
+document.addEventListener('keydown', (e) => {
+    if ((e.key === 'e' || e.key === 'E') && !(e.target.getAttribute && e.target.getAttribute('contenteditable') === 'true')) editor.toggleEditMode();
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        editor.save();
+        const blob = new Blob(['<!DOCTYPE html>' + document.documentElement.outerHTML], { type: 'text/html' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'retro-handbook-edited.html';
+        a.click();
+    }
+});
+let saveTimer = null;
+document.addEventListener('input', () => {
+    if (!editor.isActive) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => editor.save(), 800);
+});
+</script>
+</body>
+</html>
